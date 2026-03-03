@@ -42,6 +42,26 @@ local function IsEndScreenVisible()
     return true
 end
 
+local function IsBossDead()
+    local stage = Workspace:FindFirstChild("Stage")
+    if not stage then return true end -- geen stage = dungeon voorbij
+    for _, map in pairs(stage:GetChildren()) do
+        if string.sub(map.Name, 1, 3) == "map" then
+            local monster = map:FindFirstChild("monster")
+            if monster then
+                local c3 = monster:FindFirstChild("c3")
+                if c3 then
+                    local hum = c3:FindFirstChild("Humanoid")
+                    if hum and hum.Health > 0 then
+                        return false -- Boss leeft nog
+                    end
+                end
+            end
+        end
+    end
+    return true -- c3 niet gevonden of health <= 0
+end
+
 -- ==============================================================================
 -- STATE (_G blijft bewaard, maar bij server->server teleport reset Roblox _G)
 -- Oplossing: sla Running/Phase op in een aparte persistent check via dungeon detectie
@@ -172,6 +192,10 @@ end
 
 local function FindAgainButton()
     if not IsEndScreenVisible() then return nil end
+    if not IsBossDead() then
+        print("[Again] Eindscherm zichtbaar maar boss leeft nog, wachten...")
+        return nil
+    end
     local gui          = LocalPlayer:FindFirstChild("PlayerGui")
     local partyOverGui = gui and gui:FindFirstChild("PartyOverGui")
     local frame        = partyOverGui and partyOverGui:FindFirstChild("Frame")
@@ -359,27 +383,32 @@ local function RunDungeonPhase()
     -- Wacht op againbtn, blijf ondertussen enemies aanvallen (boss kan nog leven)
     UpdateStatus("Wachten op eindscherm...")
     local deadline = tick() + 120
+    local againClicked = false  -- NIEUW: voorkomt dubbele klik
     while tick() < deadline do
         if not S.Running then return end
-
-        local btn = FindAgainButton()
-        if btn then
-            task.wait(0.5)
-            ClickGuiObject(btn)
-            print("[Again] Geklikt!")
-            UpdateStatus("Opnieuw geklikt! Laden...")
-            S.CurrentRun += 1
-            UpdateRuns(S.CurrentRun, S.MaxRuns)
-            S.Phase = "DUNGEON"
-            return
+    
+        if not againClicked then
+            local btn = FindAgainButton()
+            if btn then
+                againClicked = true  -- NIEUW: zet vlag direct
+                task.wait(0.5)
+                ClickGuiObject(btn)
+                print("[Again] Geklikt!")
+                UpdateStatus("Opnieuw geklikt! Laden...")
+                task.wait(3)  -- NIEUW: wacht op teleport animatie
+                S.CurrentRun += 1
+                UpdateRuns(S.CurrentRun, S.MaxRuns)
+                S.Phase = "DUNGEON"
+                return
+            end
         end
-
+    
         -- Boss nog niet dood? Blijf aanvallen
         local enemy = FindClosestEnemy()
         if enemy and S.AutoAttack then
             AttackTarget(enemy)
         end
-
+    
         task.wait(0.3)
     end
 
