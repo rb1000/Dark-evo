@@ -162,9 +162,8 @@ local function FindAgainButton()
     local partyOverGui = gui and gui:FindFirstChild("PartyOverGui")
     local frame        = partyOverGui and partyOverGui:FindFirstChild("Frame")
     local bg           = frame and frame:FindFirstChild("bg")
-    if not bg then return nil end
-    local btn = bg:FindFirstChild("againbtn")
-    if btn then return btn end
+    local btn          = bg and bg:FindFirstChild("againbtn")
+    if btn and btn.Visible then return btn end
     return nil
 end
 -- ==============================================================================
@@ -289,8 +288,8 @@ local function WalkToWithCombat(targetPos)
         local frame        = partyOverGui and partyOverGui:FindFirstChild("Frame")
         local bg           = frame and frame:FindFirstChild("bg")
         local againBtn     = bg and bg:FindFirstChild("againbtn")
-        if againBtn then
-            print("[WalkToWithCombat] Eindscherm gedetecteerd, stoppen met lopen!")
+        if againBtn and againBtn.Visible then
+            print("[WalkToWithCombat] Eindscherm gedetecteerd!")
             hum:MoveTo(root.Position)
             return
         end
@@ -416,7 +415,7 @@ local function AutoStart()
     local bg           = frame and frame:FindFirstChild("bg")
     local againBtn     = bg and bg:FindFirstChild("againbtn")
 
-    if againBtn and IsInDungeon() then
+    if againBtn and againBtn.Visible and IsInDungeon() then
         print("[AutoStart] Eindscherm in dungeon gevonden!")
         UpdateStatus("Eindscherm gevonden, opnieuw klikken...")
         task.wait(0.5)
