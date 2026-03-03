@@ -330,10 +330,10 @@ local function RunDungeonPhase()
     UpdateStatus("Run " .. S.CurrentRun .. " | Lopen + killen...")
     WalkToWithCombat(DungeonEnd)
     if not S.Running then return end
-
+    
     -- Run klaar
     UpdateRuns(S.CurrentRun, S.MaxRuns)
-
+    
     -- Check limiet
     if S.MaxRuns > 0 and S.CurrentRun >= S.MaxRuns then
         UpdateStatus("✅ Klaar! " .. S.CurrentRun .. " / " .. S.MaxRuns .. " runs gedaan")
@@ -341,22 +341,30 @@ local function RunDungeonPhase()
         S.Phase   = "IDLE"
         return
     end
-
-    -- Wacht op opnieuw knop
-    UpdateStatus("Dungeon klaar! Wachten op opnieuw...")
-    task.wait(3) -- wacht op GUI
     
-    local deadline = tick() + 30
+    -- Wacht op opnieuw knop (geen vaste wachttijd, gewoon blijven checken)
+    UpdateStatus("Wachten op eindscherm...")
+    local deadline = tick() + 120 -- 2 minuten de tijd voor boss kill + GUI
     while tick() < deadline do
         if not S.Running then return end
+    
         local btn = FindAgainButton()
-        if btn and ClickGuiObject(btn) then
+        if btn then
+            task.wait(0.5) -- klein momentje voor GUI animatie
+            ClickGuiObject(btn)
             print("[Again] Geklikt!")
             UpdateStatus("Opnieuw geklikt! Laden...")
             S.Phase = "DUNGEON"
             return
         end
-        task.wait(0.5)
+    
+        -- Blijf ook enemies killen terwijl we wachten (boss kan nog leven)
+        local enemy = FindClosestEnemy()
+        if enemy and S.AutoAttack then
+            AttackTarget(enemy)
+        end
+    
+        task.wait(0.3)
     end
 
     warn("[Again] Timeout")
