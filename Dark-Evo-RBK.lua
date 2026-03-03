@@ -4,9 +4,20 @@ local Window = Library.CreateLib("Peak Evo - RB1000 (Smart Detect)", "DarkTheme"
 -- Services
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
-local VirtualUser = game:GetService("VirtualUser")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local Workspace = game:GetService("Workspace")
+
+
+-- ==============================================================================
+-- ANTI-AFK
+-- ==============================================================================
+local VirtualUser = game:GetService("VirtualUser")
+game:GetService("Players").LocalPlayer.Idled:Connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new(0, 0))
+    print("[Anti-AFK] AFK kick voorkomen")
+end)
+
 
 -- ==============================================================================
 -- DETECTIE (bovenaan zodat het bij boot gebruikt kan worden)
