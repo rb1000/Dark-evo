@@ -409,15 +409,15 @@ local function AutoStart()
     if not S.Running then return end
     UpdateRuns(S.CurrentRun, S.MaxRuns)
 
-    -- Check eerst of eindscherm al zichtbaar is (script herstart na boss kill)
+    -- Check eindscherm, maar ALLEEN als we al in dungeon zijn
     local gui          = LocalPlayer:FindFirstChild("PlayerGui")
     local partyOverGui = gui and gui:FindFirstChild("PartyOverGui")
     local frame        = partyOverGui and partyOverGui:FindFirstChild("Frame")
     local bg           = frame and frame:FindFirstChild("bg")
     local againBtn     = bg and bg:FindFirstChild("againbtn")
-    
-    if againBtn then
-        print("[AutoStart] Eindscherm gedetecteerd bij boot!")
+
+    if againBtn and IsInDungeon() then
+        print("[AutoStart] Eindscherm in dungeon gevonden!")
         UpdateStatus("Eindscherm gevonden, opnieuw klikken...")
         task.wait(0.5)
         ClickGuiObject(againBtn)
