@@ -1,19 +1,16 @@
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/xHeptc/Kavo-UI-Library/main/source.lua"))()
-local Window = Library.CreateLib("Peak Evo - RB1000 (Dungeon + Kill)", "DarkTheme")
+local Window = Library.CreateLib("Peak Evo - RB1000 (Smart Detect)", "DarkTheme")
 
 -- Services
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local VirtualUser = game:GetService("VirtualUser")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 -- ==============================================================================
 -- INSTELLINGEN & DATA
 -- ==============================================================================
 
--- 1. Lobby Route (Om de dungeon in te gaan)
 local LobbyRoute = {
     {Type = "Walk", Pos = Vector3.new(-1682.3, 6.5, 54.2)},
     {Type = "Walk", Pos = Vector3.new(-1685.6, 6.3, 0.1)},
@@ -22,7 +19,6 @@ local LobbyRoute = {
     {Type = "Walk", Pos = Vector3.new(-1744.0, 22.6, -322.5)},
 }
 
--- 2. Dungeon Route (De route binnenin)
 local DungeonRoute = {
     Vector3.new(-877.7, 31.6, 621.3),
     Vector3.new(-877.1, 31.6, 566.7),
@@ -40,42 +36,198 @@ local DungeonRoute = {
     Vector3.new(-880.3, 31.6, -507.3),
 }
 
--- Globals
-_G.RunRoute = _G.RunRoute or false
-_G.AutoAttack = _G.AutoAttack or true -- Val automatisch aan
-_G.AttackRange = 45 -- Hoe dichtbij moet een monster zijn om te stoppen met lopen?
-_G.PartyDifficulty = _G.PartyDifficulty or "Normal"
-if _G.AutoReexecuteOnTeleport == nil then _G.AutoReexecuteOnTeleport = true end
+_G.RunRoute = false
+_G.AutoAttack = true
+_G.AttackRange = 45
 
 -- ==============================================================================
--- LOGICA: MONSTERS ZOEKEN & VECHTEN
+-- PARTY FUNCTIES
+-- ==============================================================================
+
+local function GetPartyGui()
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not playerGui then return nil end
+    return playerGui:FindFirstChild("PartyGui")
+end
+
+local function ClickButton(button)
+    if not button then return false end
+    -- Simuleer een echte muisklik via FireButton
+    local mouse = LocalPlayer:GetMouse()
+    button:FireButton1Down(mouse)
+    task.wait(0.05)
+    button:FireButton1Up(mouse)
+    return true
+end
+
+local function OpenCreatePartyMenu()
+    local partyGui = GetPartyGui()
+    if not partyGui then
+        print("[Party] PartyGui niet gevonden!")
+        return false
+    end
+
+    local frame = partyGui:FindFirstChild("Frame")
+    if not frame then
+        print("[Party] Frame niet gevonden in PartyGui!")
+        return false
+    end
+
+    -- Zoek de createBg knop/frame
+    local createBg = frame:FindFirstChild("createBg")
+    if not createBg then
+        print("[Party] createBg niet gevonden!")
+        return false
+    end
+
+    -- Probeer een klikbare knop binnenin createBg te vinden
+    local btn = createBg:FindFirstChildOfClass("TextButton")
+        or createBg:FindFirstChildOfClass("ImageButton")
+
+    if btn then
+        print("[Party] Knop gevonden in createBg: " .. btn.Name)
+        ClickButton(btn)
+        return true
+    else
+        -- createBg zelf is mogelijk de knop
+        if createBg:IsA("TextButton") or createBg:IsA("ImageButton") then
+            print("[Party] createBg is zelf een knop, klikken...")
+            ClickButton(createBg)
+            return true
+        end
+    end
+
+    print("[Party] Geen klikbare knop gevonden in createBg!")
+    return false
+end
+
+local function ConfirmCreateParty()
+    -- Na het openen, zoek een bevestigingsknop (bijv. "createSelectStageBg" of een confirm-knop)
+    task.wait(0.5)
+
+    local partyGui = GetPartyGui()
+    if not partyGui then return false end
+
+    local frame = partyGui:FindFirstChild("Frame")
+    if not frame then return false end
+
+    -- Probeer createSelectStageBg (stage selectie scherm)
+    local createSelectStageBg = frame:FindFirstChild("createSelectStageBg")
+    if createSelectStageBg and createSelectStageBg.Visible then
+        local confirmBtn = createSelectStageBg:FindFirstChildOfClass("TextButton")
+            or createSelectStageBg:FindFirstChildOfClass("ImageButton")
+        if confirmBtn then
+            print("[Party] Stage selectie bevestigen: " .. confirmBtn.Name)
+            ClickButton(confirmBtn)
+            return true
+        end
+    end
+
+    return false
+end
+
+function AutoCreateParty()
+    task.spawn(function()
+        print("[Party] Party aanmaken starten...")
+        UpdateStatus("Status: Party Aanmaken...")
+
+        -- Wacht tot PartyGui beschikbaar is
+        local timeout = 10
+        local partyGui = nil
+        repeat
+            partyGui = GetPartyGui()
+            task.wait(0.5)
+            timeout = timeout - 0.5
+        until partyGui or timeout <= 0
+
+        if not partyGui then
+            print("[Party] Timeout: PartyGui niet gevonden na 10s")
+            UpdateStatus("Status: Party GUI niet gevonden!")
+            return
+        end
+
+        -- Stap 1: Open create menu
+        local success = OpenCreatePartyMenu()
+        if not success then
+            UpdateStatus("Status: Party aanmaken mislukt!")
+            return
+        end
+
+        task.wait(0.5)
+
+        -- Stap 2: Bevestig (optioneel, afhankelijk van game flow)
+        ConfirmCreateParty()
+
+        print("[Party] Party aangemaakt!")
+        UpdateStatus("Status: Party Aangemaakt ✓")
+    end)
+end
+
+-- ==============================================================================
+-- GUI (eerst aanmaken, zodat StatusLabel beschikbaar is)
+-- ==============================================================================
+
+local MainTab = Window:NewTab("Main")
+local Section = MainTab:NewSection("Controls")
+
+local StatusLabel = Section:NewLabel("Status: Idle")
+
+local function UpdateStatus(text)
+    StatusLabel:UpdateLabel(text)
+end
+
+-- ==============================================================================
+-- LOGICA: DETECTIE
+-- ==============================================================================
+
+local function IsInDungeon()
+    local stage = Workspace:FindFirstChild("Stage")
+    if not stage then return false end
+
+    if stage:FindFirstChild("baseStage") then
+        return false
+    end
+
+    if stage:FindFirstChild("map1") or stage:FindFirstChild("map2") or stage:FindFirstChild("map3") then
+        return true
+    end
+
+    for _, child in pairs(stage:GetChildren()) do
+        if string.sub(child.Name, 1, 3) == "map" then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- ==============================================================================
+-- LOGICA: COMBAT & LOPEN
 -- ==============================================================================
 
 local function FindClosestEnemy()
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
-    
+
     local myPos = char.HumanoidRootPart.Position
     local closest = nil
-    local minDist = _G.AttackRange -- Alleen monsters binnen deze range
+    local minDist = _G.AttackRange
 
-    -- Zoek in Workspace.Stage (zoals in je screenshot)
     local stage = Workspace:FindFirstChild("Stage")
     if stage then
         for _, map in pairs(stage:GetChildren()) do
-            -- Check of er een 'monster' folder is (zoals in map3)
-            local monsterFolder = map:FindFirstChild("monster") or map:FindFirstChild("Enemies")
-            
-            -- Als er geen monster folder is, check of de map zelf monsters bevat
-            local searchTarget = monsterFolder and monsterFolder:GetChildren() or {}
+            if map.Name ~= "baseStage" then
+                local monsterFolder = map:FindFirstChild("monster") or map:FindFirstChild("Enemies")
+                local searchTarget = monsterFolder and monsterFolder:GetChildren() or {}
 
-            for _, mob in pairs(searchTarget) do
-                if mob:FindFirstChild("Humanoid") and mob:FindFirstChild("HumanoidRootPart") then
-                    if mob.Humanoid.Health > 0 then
-                        local dist = (mob.HumanoidRootPart.Position - myPos).Magnitude
-                        if dist < minDist then
-                            minDist = dist
-                            closest = mob
+                for _, mob in pairs(searchTarget) do
+                    if mob:FindFirstChild("Humanoid") and mob:FindFirstChild("HumanoidRootPart") then
+                        if mob.Humanoid.Health > 0 then
+                            local dist = (mob.HumanoidRootPart.Position - myPos).Magnitude
+                            if dist < minDist then
+                                minDist = dist
+                                closest = mob
+                            end
                         end
                     end
                 end
@@ -87,205 +239,145 @@ end
 
 local function AttackTarget(target)
     if not target or not target:FindFirstChild("HumanoidRootPart") then return end
-    
     local char = LocalPlayer.Character
     VirtualUser:CaptureController()
-    
-    -- Kijk naar monster
+
     if char and char:FindFirstChild("HumanoidRootPart") then
-        char.HumanoidRootPart.CFrame = CFrame.new(char.HumanoidRootPart.Position, Vector3.new(target.HumanoidRootPart.Position.X, char.HumanoidRootPart.Position.Y, target.HumanoidRootPart.Position.Z))
+        char.HumanoidRootPart.CFrame = CFrame.new(
+            char.HumanoidRootPart.Position,
+            Vector3.new(
+                target.HumanoidRootPart.Position.X,
+                char.HumanoidRootPart.Position.Y,
+                target.HumanoidRootPart.Position.Z
+            )
+        )
     end
-
-    -- Klikken (Attack)
     VirtualUser:ClickButton1(Vector2.new(900, 500))
-    
-    -- Eventueel skills vuren (optioneel, bv E of R drukken)
-    -- VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
 end
-
--- ==============================================================================
--- LOGICA: INTELLIGENT LOPEN (STOP VOOR MONSTERS)
--- ==============================================================================
 
 local function WalkToWithCombat(targetPos)
     local char = LocalPlayer.Character
     local hum = char:WaitForChild("Humanoid")
     local root = char:WaitForChild("HumanoidRootPart")
-    
-    hum:MoveTo(targetPos)
 
+    hum:MoveTo(targetPos)
     local stuckTimer = 0
     local lastPos = root.Position
 
-    -- Loop totdat we op de bestemming zijn
     while (root.Position - targetPos).Magnitude > 4 do
-        if not _G.RunRoute then hum:MoveTo(root.Position) return end -- Stop knop
-        
-        -- 1. Check voor monsters
+        if not _G.RunRoute then hum:MoveTo(root.Position) return end
+
         local enemy = FindClosestEnemy()
-        
-        if enemy then
-            -- STOP LOPEN! ER IS EEN VIJAND!
-            hum:MoveTo(root.Position) -- Remmen
-            
+        if enemy and _G.AutoAttack then
+            hum:MoveTo(root.Position)
             repeat
                 if not _G.RunRoute then return end
-                -- Val aan
                 AttackTarget(enemy)
-                
-                -- Loop klein beetje naar enemy als hij ver weg rent
-                if enemy.HumanoidRootPart then
-                    hum:MoveTo(enemy.HumanoidRootPart.Position)
-                end
-                
+                if enemy.HumanoidRootPart then hum:MoveTo(enemy.HumanoidRootPart.Position) end
                 task.wait(0.1)
-                -- Check of hij nog leeft en dichtbij is
-            until not enemy or not enemy.Parent or enemy.Humanoid.Health <= 0 or (root.Position - enemy.HumanoidRootPart.Position).Magnitude > _G.AttackRange + 10
-            
-            -- Enemy dood? Hervat route naar waypoint
+            until not enemy or not enemy.Parent or enemy.Humanoid.Health <= 0
+                or (root.Position - enemy.HumanoidRootPart.Position).Magnitude > _G.AttackRange + 10
             hum:MoveTo(targetPos)
         end
-        
-        -- 2. Anti-Stuck (als je tegen een muur loopt)
+
         if (root.Position - lastPos).Magnitude < 0.5 then
             stuckTimer = stuckTimer + 1
-            if stuckTimer > 20 then -- 2 seconden vast?
-                hum.Jump = true
-                stuckTimer = 0
-            end
+            if stuckTimer > 20 then hum.Jump = true stuckTimer = 0 end
         else
             stuckTimer = 0
         end
         lastPos = root.Position
-
         task.wait(0.1)
     end
 end
 
 -- ==============================================================================
--- HOOFDFUNCTIES
+-- START FUNCTIES
 -- ==============================================================================
 
 function StartDungeonLogic()
+    _G.RunRoute = true
     task.spawn(function()
-        print("Dungeon gedetecteerd of gestart!")
-        
-        -- Wacht 10 seconden voor de deur (zoals gevraagd)
-        Window:UpdateLabel("Status: Wachten op Deur (10s)...")
-        print("Wachten op deur (10s)...")
+        print("DUNGEON START: Wacht 10s op deur...")
+        UpdateStatus("Status: Wachten op deur (10s)...")
+
         task.wait(10)
-        
-        print("Start Dungeon Route + Auto Attack")
-        Window:UpdateLabel("Status: Dungeon Farmen...")
-        
-        _G.RunRoute = true
-        
+
+        print("DUNGEON: Route starten...")
+        UpdateStatus("Status: Dungeon Farmen...")
+
         for i, point in ipairs(DungeonRoute) do
             if not _G.RunRoute then break end
-            print("Lopen naar punt " .. i)
             WalkToWithCombat(point)
         end
-        
-        print("Dungeon klaar!")
-        Window:UpdateLabel("Status: Dungeon Klaar")
+        UpdateStatus("Status: Dungeon Klaar")
     end)
 end
 
 function StartLobbyLogic()
+    _G.RunRoute = true
     task.spawn(function()
-        print("Lobby logic gestart...")
-        Window:UpdateLabel("Status: Naar Dungeon Lopen...")
-        _G.RunRoute = true
+        print("LOBBY START: Lopen naar startpunt...")
+        UpdateStatus("Status: Lopen in Lobby...")
 
-        -- Loop de lobby route
+        local char = LocalPlayer.Character
+        local hum = char:FindFirstChild("Humanoid")
+
         for i, step in ipairs(LobbyRoute) do
             if not _G.RunRoute then break end
-            local char = LocalPlayer.Character
-            local hum = char:FindFirstChild("Humanoid")
-            
+
             if step.Type == "Walk" then
+                print("Lobby stap:", i)
                 hum:MoveTo(step.Pos)
-                hum.MoveToFinished:Wait(3)
+                hum.MoveToFinished:Wait(5)
             end
             task.wait(0.1)
         end
 
-        -- Party Maken
         if _G.RunRoute then
-            Window:UpdateLabel("Status: Party Maken...")
-            -- Hier de logica van je oude script (kort samengevat)
-            local function Click(btn)
-                if btn and btn.Visible then
-                    pcall(function()
-                        for _,v in pairs(getconnections(btn.MouseButton1Click)) do v:Fire() end
-                    end)
-                    return true
-                end
-                return false
-            end
-            
-            -- Probeert de UI sequence (simpel gehouden voor overzicht)
-            -- Let op: Dit gedeelte leunt op je vorige script logica voor GUI finding
-            -- Ik ga ervan uit dat je de GUI functies uit deel 1 hebt. 
-            -- Voor nu simpel de start aanroep:
-            print("Probeer party te starten...")
-            -- (Voeg hier je TryCreateParty() logica toe of gebruik auto-execute na teleport)
+            -- Automatisch party aanmaken na lobby route
+            AutoCreateParty()
         end
     end)
 end
 
--- Check waar we zijn bij opstarten
-local function CheckLocationAndStart()
-    local stage = Workspace:FindFirstChild("Stage")
-    if stage then
-        -- We zijn in de dungeon!
+function AutoDetectAndStart()
+    if IsInDungeon() then
+        print("Locatie: DUNGEON")
         StartDungeonLogic()
     else
-        -- We zijn waarschijnlijk in de lobby
-        print("Geen Stage gevonden, we zijn in de Lobby.")
-        -- Optioneel: StartLobbyLogic() aanroepen als je dat automatisch wilt
+        print("Locatie: LOBBY (baseStage gevonden)")
+        StartLobbyLogic()
     end
 end
 
 -- ==============================================================================
--- UI SETUP
+-- GUI KNOPPEN
 -- ==============================================================================
 
-local MainTab = Window:NewTab("Main")
-local Section = MainTab:NewSection("Controls")
-
-Section:NewButton("Start Dungeon Route (Nu)", "Start direct de route + kill script", function()
-    StartDungeonLogic()
-end)
-
-Section:NewButton("Start Lobby Route", "Loopt naar startpunt", function()
+Section:NewButton("Start Lobby Route", "Forceert de lobby loop route", function()
+    print("Knop ingedrukt: Start Lobby Route")
     StartLobbyLogic()
 end)
 
-Section:NewToggle("Auto Attack", "Val monsters aan tijdens lopen", function(state)
+Section:NewButton("Start Dungeon Route", "Forceert de dungeon route + kill", function()
+    print("Knop ingedrukt: Start Dungeon Route")
+    StartDungeonLogic()
+end)
+
+Section:NewButton("Party Aanmaken", "Maakt handmatig een party aan", function()
+    AutoCreateParty()
+end)
+
+Section:NewButton("Stop Alles", "Stopt direct", function()
+    _G.RunRoute = false
+    LocalPlayer.Character.Humanoid:MoveTo(LocalPlayer.Character.HumanoidRootPart.Position)
+    UpdateStatus("Status: Gestopt")
+end)
+
+Section:NewToggle("Auto Attack", "Aan/Uit", function(state)
     _G.AutoAttack = state
 end)
 
-Section:NewSlider("Attack Range", "Afstand tot monster voor stop", 100, 15, function(v)
-    _G.AttackRange = v
-end)
-
-Section:NewButton("Stop Alles", "Stopt lopen en vechten", function()
-    _G.RunRoute = false
-    LocalPlayer.Character.Humanoid:MoveTo(LocalPlayer.Character.HumanoidRootPart.Position)
-end)
-
--- Queue on Teleport (zodat hij herstart na dungeon joinen)
-local queue_on_teleport = queue_on_teleport or syn.queue_on_teleport
-if queue_on_teleport and _G.AutoReexecuteOnTeleport then
-    queue_on_teleport([[
-        repeat task.wait() until game:IsLoaded()
-        task.wait(2)
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/xHeptc/Kavo-UI-Library/main/source.lua"))()
-        -- Laad dit script opnieuw (als je het in een file of url hebt, zet dat hier)
-        print("Re-executed!")
-    ]])
-end
-
--- Start check
-CheckLocationAndStart()
+-- Check bij opstarten
+AutoDetectAndStart()
