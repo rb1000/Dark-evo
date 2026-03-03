@@ -162,11 +162,11 @@ local function FindAgainButton()
     local partyOverGui = gui and gui:FindFirstChild("PartyOverGui")
     local frame        = partyOverGui and partyOverGui:FindFirstChild("Frame")
     local bg           = frame and frame:FindFirstChild("bg")
-    local btn          = bg and bg:FindFirstChild("againbtn")
+    if not bg then return nil end
+    local btn = bg:FindFirstChild("againbtn")
     if btn then return btn end
     return nil
 end
-
 -- ==============================================================================
 -- PARTY AANMAKEN
 -- ==============================================================================
