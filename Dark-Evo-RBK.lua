@@ -395,6 +395,7 @@ local function RunDungeonPhase()
                 ClickGuiObject(btn)
                 print("[Again] Geklikt!")
                 UpdateStatus("Opnieuw geklikt! Laden...")
+                lastAgainClick = tick()  -- NIEUW: sla tijdstip op
                 task.wait(3)  -- NIEUW: wacht op teleport animatie
                 S.CurrentRun += 1
                 UpdateRuns(S.CurrentRun, S.MaxRuns)
@@ -445,35 +446,16 @@ local function RunLobbyPhase()
     end
 end
 
+local lastAgainClick = 0  -- NIEUW: tijdstip van laatste Again klik
+
 local function AutoStart()
     if not S.Running then return end
     UpdateRuns(S.CurrentRun, S.MaxRuns)
 
-    -- Check eindscherm, maar ALLEEN als we al in dungeon zijn
-    local gui          = LocalPlayer:FindFirstChild("PlayerGui")
-    local partyOverGui = gui and gui:FindFirstChild("PartyOverGui")
-    local frame        = partyOverGui and partyOverGui:FindFirstChild("Frame")
-    local bg           = frame and frame:FindFirstChild("bg")
-    local againBtn     = bg and bg:FindFirstChild("againbtn")
-
-    if IsEndScreenVisible() and IsInDungeon() then
-        print("[AutoStart] Eindscherm in dungeon gevonden!")
-        UpdateStatus("Eindscherm gevonden, opnieuw klikken...")
-        task.wait(0.5)
-        local btn = FindAgainButton()
-        if btn then 
-            ClickGuiObject(btn)
-            -- Wacht tot eindscherm verdwijnt (teleport begint)
-            local waitDeadline = tick() + 10
-            while tick() < waitDeadline do
-                if not IsEndScreenVisible() then break end
-                task.wait(0.2)
-            end
-        end
-        S.CurrentRun += 1
-        UpdateRuns(S.CurrentRun, S.MaxRuns)
-        S.Phase = "DUNGEON"
-        return
+    -- NIEUW: Wacht minimaal 5 seconden na een Again klik (teleport cooldown)
+    local timeSinceClick = tick() - lastAgainClick
+    if timeSinceClick < 5 then
+        task.wait(5 - timeSinceClick)
     end
 
     if IsInDungeon() then
@@ -485,6 +467,7 @@ local function AutoStart()
         print("[AutoStart] Lobby")
         RunLobbyPhase()
     end
+end
 end
 
 -- ==============================================================================
