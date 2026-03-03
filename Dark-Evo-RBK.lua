@@ -162,13 +162,7 @@ local function FindAgainButton()
     local partyOverGui = gui and gui:FindFirstChild("PartyOverGui")
     local frame        = partyOverGui and partyOverGui:FindFirstChild("Frame")
     local bg           = frame and frame:FindFirstChild("bg")
-    if not bg then return nil end
-    
-    local btn = bg:FindFirstChild("againbtn")
-    print("[Again] bg gevonden, againbtn:", btn and "JA" or "NEE", 
-          btn and "Visible=" .. tostring(btn.Visible) or "")
-    
-    -- Geef terug ook als Visible=false, we proberen toch te klikken
+    local btn          = bg and bg:FindFirstChild("againbtn")
     if btn then return btn end
     return nil
 end
@@ -330,10 +324,7 @@ local function RunDungeonPhase()
     UpdateStatus("Run " .. S.CurrentRun .. " | Lopen + killen...")
     WalkToWithCombat(DungeonEnd)
     if not S.Running then return end
-    
-    -- Run klaar
-    UpdateRuns(S.CurrentRun, S.MaxRuns)
-    
+
     -- Check limiet
     if S.MaxRuns > 0 and S.CurrentRun >= S.MaxRuns then
         UpdateStatus("✅ Klaar! " .. S.CurrentRun .. " / " .. S.MaxRuns .. " runs gedaan")
@@ -341,34 +332,36 @@ local function RunDungeonPhase()
         S.Phase   = "IDLE"
         return
     end
-    
-    -- Wacht op opnieuw knop (geen vaste wachttijd, gewoon blijven checken)
+
+    -- Wacht op againbtn, blijf ondertussen enemies aanvallen (boss kan nog leven)
     UpdateStatus("Wachten op eindscherm...")
-    local deadline = tick() + 120 -- 2 minuten de tijd voor boss kill + GUI
+    local deadline = tick() + 120
     while tick() < deadline do
         if not S.Running then return end
-    
+
         local btn = FindAgainButton()
         if btn then
-            task.wait(0.5) -- klein momentje voor GUI animatie
+            task.wait(0.5)
             ClickGuiObject(btn)
             print("[Again] Geklikt!")
             UpdateStatus("Opnieuw geklikt! Laden...")
+            S.CurrentRun += 1
+            UpdateRuns(S.CurrentRun, S.MaxRuns)
             S.Phase = "DUNGEON"
             return
         end
-    
-        -- Blijf ook enemies killen terwijl we wachten (boss kan nog leven)
+
+        -- Boss nog niet dood? Blijf aanvallen
         local enemy = FindClosestEnemy()
         if enemy and S.AutoAttack then
             AttackTarget(enemy)
         end
-    
+
         task.wait(0.3)
     end
 
     warn("[Again] Timeout")
-    UpdateStatus("❌ Opnieuw knop niet gevonden")
+    UpdateStatus("❌ Eindscherm niet gevonden")
     S.Running = false
     S.Phase   = "IDLE"
 end
