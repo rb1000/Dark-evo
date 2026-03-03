@@ -182,17 +182,26 @@ local function TryCreateParty()
     task.wait(1)
 
     -- StartBtn
-    UpdateStatus("Wachten op StartBtn...")
-    local s_deadline = tick() + 10
-    while tick() < s_deadline do
-        local btn = FindPartyStartButton()
-        if btn and ClickGuiObject(btn) then
-            print("[Party] StartBtn OK - Teleporteren!")
+-- StartBtn (blijf proberen tot teleport daadwerkelijk gebeurt)
+UpdateStatus("Wachten op StartBtn...")
+local s_deadline = tick() + 15
+while tick() < s_deadline do
+    local btn = FindPartyStartButton()
+    if btn and ClickGuiObject(btn) then
+        print("[Party] StartBtn geklikt, wachten op teleport...")
+        task.wait(1.5)
+        -- Check of we al geteleporteerd zijn (roomBg verdwenen = teleport bezig)
+        local stillVisible = FindPartyStartButton()
+        if not stillVisible then
+            print("[Party] Teleport bezig!")
             UpdateStatus("Party gestart! Teleporteren...")
             return true
         end
-        task.wait(0.5)
+        -- Nog steeds zichtbaar = nog niet geteleporteerd, opnieuw klikken
+        print("[Party] Nog niet geteleporteerd, opnieuw klikken...")
     end
+    task.wait(0.5)
+end
 
     UpdateStatus("❌ StartBtn niet gevonden")
     return false
