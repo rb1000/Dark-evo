@@ -108,17 +108,6 @@ local function IsPartyDifficultyWindowOpen()
         or FindPartyDifficultyButton("Hard")
 end
 
-local function FindPartyOpenButton()
-    local gui      = LocalPlayer:FindFirstChild("PlayerGui")
-    local partyGui = gui and gui:FindFirstChild("PartyGui")
-    local frame    = partyGui and partyGui:FindFirstChild("Frame")
-    local mainBg   = frame and frame:FindFirstChild("mainBg")
-    local right    = mainBg and mainBg:FindFirstChild("right")
-    local btn      = right and right:FindFirstChild("btn")
-    if btn and btn.Visible then return btn end
-    return nil
-end
-
 local function FindPartyCreateButton()
     local gui      = LocalPlayer:FindFirstChild("PlayerGui")
     local partyGui = gui and gui:FindFirstChild("PartyGui")
@@ -152,49 +141,57 @@ local function FindAgainButton()
 end
 
 local function TryCreateParty()
-    UpdateStatus("Party menu openen...")
-    if not IsPartyDifficultyWindowOpen() then
-        local deadline = tick() + 10
-        local opened = false
-        while tick() < deadline do
-            local btn = FindPartyOpenButton()
-            if btn and ClickGuiObject(btn) then opened = true break end
-            task.wait(0.1)
-        end
-        if not opened then
-            UpdateStatus("❌ Party open knop niet gevonden")
-            return false
-        end
-        task.wait(0.5)
+    -- Wacht tot createBg automatisch zichtbaar wordt (menu opent vanzelf)
+    UpdateStatus("Wachten op party menu...")
+    local deadline = tick() + 15
+    while tick() < deadline do
+        if not S.Running then return false end
+        if IsPartyDifficultyWindowOpen() then break end
+        task.wait(0.2)
     end
 
+    if not IsPartyDifficultyWindowOpen() then
+        UpdateStatus("❌ Party menu niet verschenen")
+        return false
+    end
+
+    -- Difficulty
     UpdateStatus("Difficulty selecteren...")
     local d_deadline = tick() + 10
     while tick() < d_deadline do
         local btn = FindPartyDifficultyButton(S.Difficulty)
-        if btn and ClickGuiObject(btn) then break end
+        if btn and ClickGuiObject(btn) then
+            print("[Party] Difficulty OK:", S.Difficulty)
+            break
+        end
         task.wait(0.05)
     end
     task.wait(0.3)
 
-    UpdateStatus("Party aanmaken...")
+    -- CreateBtn (1x klikken)
+    UpdateStatus("Lobby aanmaken...")
     local c_deadline = tick() + 10
     while tick() < c_deadline do
         local btn = FindPartyCreateButton()
-        if btn and ClickGuiObject(btn) then break end
+        if btn and ClickGuiObject(btn) then
+            print("[Party] CreateBtn OK")
+            break
+        end
         task.wait(0.05)
     end
     task.wait(1)
 
+    -- StartBtn
     UpdateStatus("Wachten op StartBtn...")
-    local s_deadline = tick() + 8
+    local s_deadline = tick() + 10
     while tick() < s_deadline do
         local btn = FindPartyStartButton()
         if btn and ClickGuiObject(btn) then
+            print("[Party] StartBtn OK - Teleporteren!")
             UpdateStatus("Party gestart! Teleporteren...")
             return true
         end
-        task.wait(0.6)
+        task.wait(0.5)
     end
 
     UpdateStatus("❌ StartBtn niet gevonden")
