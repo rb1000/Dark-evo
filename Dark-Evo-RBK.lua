@@ -91,8 +91,8 @@ end
 -- ==============================================================================
 
 local MainTab     = Window:NewTab("Main")
-local Section     = MainTab:NewSection("âš™ï¸ Instellingen")
-local CtrlSection = MainTab:NewSection("ðŸŽ® Controls")
+local Section     = MainTab:NewSection(">> Instellingen")
+local CtrlSection = MainTab:NewSection(">> Controls")
 local StatusLabel = Section:NewLabel("Status: Idle")
 local RunsLabel   = Section:NewLabel("Runs: 0 / 8")
 
@@ -213,7 +213,7 @@ local function TryCreateParty()
     end
 
     if not IsPartyDifficultyWindowOpen() then
-        UpdateStatus("âŒ Party menu niet verschenen")
+        UpdateStatus("FOUT: Party menu niet verschenen")
         return false
     end
 
@@ -253,7 +253,7 @@ local function TryCreateParty()
         task.wait(0.5)
     end
 
-    UpdateStatus("âŒ StartBtn timeout")
+    UpdateStatus("FOUT: StartBtn timeout")
     return false
 end
 
@@ -372,7 +372,7 @@ local function RunDungeonPhase()
 
     -- Check limiet
     if S.MaxRuns > 0 and S.CurrentRun >= S.MaxRuns then
-        UpdateStatus("âœ… Klaar! " .. S.CurrentRun .. " / " .. S.MaxRuns .. " runs gedaan")
+        UpdateStatus("KLAAR! " .. S.CurrentRun .. " / " .. S.MaxRuns .. " runs gedaan")
         S.Running = false
         S.Phase   = "IDLE"
         return
@@ -413,7 +413,7 @@ local function RunDungeonPhase()
     end
 
     warn("[Again] Timeout")
-    UpdateStatus("âŒ Eindscherm niet gevonden")
+    UpdateStatus("FOUT: Eindscherm niet gevonden")
     S.Running = false
     S.Phase   = "IDLE"
 end
@@ -439,7 +439,7 @@ local function RunLobbyPhase()
     S.Phase = "PARTY"
     local ok = TryCreateParty()
     if not ok then
-        UpdateStatus("âŒ Party mislukt")
+        UpdateStatus("FOUT: Party mislukt")
         S.Running = false
         S.Phase   = "IDLE"
     end
@@ -478,7 +478,7 @@ Section:NewToggle("Auto Attack", "Aan/Uit", true, function(state)
     S.AutoAttack = state
 end)
 
-CtrlSection:NewButton("â–¶ START", "Start de volledige loop", function()
+CtrlSection:NewButton("START", "Start de volledige loop", function()
     if S.Running then return end
     S.Running    = true
     S.CurrentRun = 1
@@ -487,7 +487,7 @@ CtrlSection:NewButton("â–¶ START", "Start de volledige loop", function()
     task.spawn(AutoStart)
 end)
 
-CtrlSection:NewButton("â¹ STOP", "Stopt alles direct", function()
+CtrlSection:NewButton("STOP", "Stopt alles direct", function()
     S.Running = false
     S.Phase   = "IDLE"
     pcall(function()
@@ -496,7 +496,7 @@ CtrlSection:NewButton("â¹ STOP", "Stopt alles direct", function()
     UpdateStatus("Gestopt")
 end)
 
-CtrlSection:NewButton("ðŸŽ‰ Party Aanmaken", "Handmatig party aanmaken", function()
+CtrlSection:NewButton("Party Aanmaken", "Handmatig party aanmaken", function()
     task.spawn(TryCreateParty)
 end)
 
