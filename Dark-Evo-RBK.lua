@@ -5,229 +5,257 @@ local Window = Library.CreateLib("Peak Evo - RB1000 (Smart Detect)", "DarkTheme"
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local VirtualUser = game:GetService("VirtualUser")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local Workspace = game:GetService("Workspace")
 
 -- ==============================================================================
--- INSTELLINGEN & DATA
+-- GUI SETUP
 -- ==============================================================================
 
+local MainTab = Window:NewTab("Main")
+local Section = MainTab:NewSection("⚙️ Instellingen")
+local ControlSection = MainTab:NewSection("▶️ Controls")
+local StatusLabel = Section:NewLabel("Status: Idle")
+local RunsLabel = Section:NewLabel("Runs: 0 / 0")
+
+local function UpdateStatus(text)
+    StatusLabel:UpdateLabel("Status: " .. text)
+end
+
+local function UpdateRuns(current, max)
+    if max == 0 then
+        RunsLabel:UpdateLabel("Runs: " .. current .. " / ∞")
+    else
+        RunsLabel:UpdateLabel("Runs: " .. current .. " / " .. max)
+    end
+end
+
+-- ==============================================================================
+-- INSTELLINGEN
+-- ==============================================================================
+
+_G.RunRoute  = false
+_G.AutoAttack = true
+_G.AttackRange = 45
+_G.PartyDifficulty = "Easy"
+_G.MaxRuns = 0      -- 0 = oneindig
+_G.CurrentRun = 0
+
 local LobbyRoute = {
-    {Type = "Walk", Pos = Vector3.new(-1682.3, 6.5, 54.2)},
-    {Type = "Walk", Pos = Vector3.new(-1685.6, 6.3, 0.1)},
+    {Type = "Walk", Pos = Vector3.new(-1682.3, 6.5,   54.2)},
+    {Type = "Walk", Pos = Vector3.new(-1685.6, 6.3,    0.1)},
     {Type = "Walk", Pos = Vector3.new(-1689.6, 22.6, -321.2)},
     {Type = "Walk", Pos = Vector3.new(-1686.7, 22.6, -319.1)},
     {Type = "Walk", Pos = Vector3.new(-1744.0, 22.6, -322.5)},
 }
 
-local DungeonRoute = {
-    Vector3.new(-877.7, 31.6, 621.3),
-    Vector3.new(-877.1, 31.6, 566.7),
-    Vector3.new(-879.0, 31.6, 411.5),
-    Vector3.new(-879.7, 31.6, 353.8),
-    Vector3.new(-881.6, 31.6, 202.8),
-    Vector3.new(-881.9, 31.6, 177.5),
-    Vector3.new(-881.1, 31.6, 133.7),
-    Vector3.new(-882.6, 31.6, 13.6),
-    Vector3.new(-882.6, 31.6, 13.6),
-    Vector3.new(-883.2, 31.6, -39.6),
-    Vector3.new(-883.8, 31.6, -87.2),
-    Vector3.new(-885.4, 31.6, -216.1),
-    Vector3.new(-881.3, 31.6, -259.4),
-    Vector3.new(-880.3, 31.6, -507.3),
-}
+-- Rechte lijn: beginpunt → eindpunt
+local DungeonStart = Vector3.new(-877.7, 31.6,  621.3)
+local DungeonEnd   = Vector3.new(-880.3, 31.6, -507.3)
 
-_G.RunRoute = false
-_G.AutoAttack = true
-_G.AttackRange = 45
+-- ==============================================================================
+-- KLIK SYSTEEM
+-- ==============================================================================
+
+local function ClickGuiObject(guiObject)
+    if not guiObject or not guiObject.AbsolutePosition or not guiObject.AbsoluteSize then
+        return false
+    end
+
+    local centerX = guiObject.AbsolutePosition.X + (guiObject.AbsoluteSize.X / 2)
+    local centerY = guiObject.AbsolutePosition.Y + (guiObject.AbsoluteSize.Y / 2)
+
+    pcall(function() guiObject:Activate() end)
+    pcall(function()
+        for _, conn in pairs(getconnections(guiObject.MouseButton1Click)) do conn:Fire() end
+    end)
+    pcall(function()
+        for _, conn in pairs(getconnections(guiObject.Activated)) do conn:Fire() end
+    end)
+
+    VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true,  game, 0)
+    VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 0)
+    print("GUI klik op:", guiObject:GetFullName())
+    return true
+end
 
 -- ==============================================================================
 -- PARTY FUNCTIES
 -- ==============================================================================
 
-local function GetPartyGui()
-    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not playerGui then return nil end
-    return playerGui:FindFirstChild("PartyGui")
+local function FindPartyDifficultyButton(difficulty)
+    local buttonMap = { Easy = "btn4", Normal = "btn5", Hard = "btn6" }
+    local gui      = LocalPlayer:FindFirstChild("PlayerGui")
+    local partyGui = gui and gui:FindFirstChild("PartyGui")
+    local frame    = partyGui and partyGui:FindFirstChild("Frame")
+    local createBg = frame and frame:FindFirstChild("createBg")
+    local left     = createBg and createBg:FindFirstChild("left")
+    local btnName  = buttonMap[difficulty or _G.PartyDifficulty]
+    local btn      = left and btnName and left:FindFirstChild(btnName)
+    if btn and btn:IsA("GuiObject") and btn.Visible then return btn end
+    return nil
 end
 
-local function ClickButton(button)
-    if not button then return false end
-    -- Simuleer een echte muisklik via FireButton
-    local mouse = LocalPlayer:GetMouse()
-    button:FireButton1Down(mouse)
-    task.wait(0.05)
-    button:FireButton1Up(mouse)
+local function IsPartyDifficultyWindowOpen()
+    return FindPartyDifficultyButton("Easy")
+        or FindPartyDifficultyButton("Normal")
+        or FindPartyDifficultyButton("Hard")
+end
+
+local function FindPartyOpenButton()
+    local gui      = LocalPlayer:FindFirstChild("PlayerGui")
+    local partyGui = gui and gui:FindFirstChild("PartyGui")
+    local frame    = partyGui and partyGui:FindFirstChild("Frame")
+    local mainBg   = frame and frame:FindFirstChild("mainBg")
+    local right    = mainBg and mainBg:FindFirstChild("right")
+    local btn      = right and right:FindFirstChild("btn")
+    if btn and btn.Visible then return btn end
+    return nil
+end
+
+local function FindPartyCreateButton()
+    local gui      = LocalPlayer:FindFirstChild("PlayerGui")
+    local partyGui = gui and gui:FindFirstChild("PartyGui")
+    local frame    = partyGui and partyGui:FindFirstChild("Frame")
+    local createBg = frame and frame:FindFirstChild("createBg")
+    local right    = createBg and createBg:FindFirstChild("right")
+    local btn      = right and right:FindFirstChild("createBtn")
+    if btn and btn.Visible then return btn end
+    return nil
+end
+
+local function FindPartyStartButton()
+    local gui      = LocalPlayer:FindFirstChild("PlayerGui")
+    local partyGui = gui and gui:FindFirstChild("PartyGui")
+    local frame    = partyGui and partyGui:FindFirstChild("Frame")
+    local roomBg   = frame and frame:FindFirstChild("roomBg")
+    local right    = roomBg and roomBg:FindFirstChild("right")
+    local btn      = right and right:FindFirstChild("StartBtn")
+    if btn and btn.Visible then return btn end
+    return nil
+end
+
+local function FindAgainButton()
+    local gui          = LocalPlayer:FindFirstChild("PlayerGui")
+    local partyOverGui = gui and gui:FindFirstChild("PartyOverGui")
+    local frame        = partyOverGui and partyOverGui:FindFirstChild("Frame")
+    local bg           = frame and frame:FindFirstChild("bg")
+    local btn          = bg and bg:FindFirstChild("againbtn")
+    if btn and btn.Visible then return btn end
+    return nil
+end
+
+local function SelectPartyDifficulty(timeout)
+    local deadline = tick() + (timeout or 5)
+    while tick() < deadline do
+        local btn = FindPartyDifficultyButton(_G.PartyDifficulty)
+        if btn and ClickGuiObject(btn) then
+            print("[Party] Difficulty:", _G.PartyDifficulty)
+            return true
+        end
+        task.wait(0.05)
+    end
+    warn("[Party] Difficulty knop niet gevonden")
+    return false
+end
+
+local function ConfirmPartyCreate(timeout)
+    local deadline = tick() + (timeout or 5)
+    while tick() < deadline do
+        local btn = FindPartyCreateButton()
+        if btn and ClickGuiObject(btn) then
+            print("[Party] Create geklikt")
+            return true
+        end
+        task.wait(0.05)
+    end
+    warn("[Party] createBtn niet gevonden")
+    return false
+end
+
+local function StartPartyAfterCreate(timeout)
+    local deadline = tick() + (timeout or 8)
+    while tick() < deadline do
+        local btn = FindPartyStartButton()
+        if btn and ClickGuiObject(btn) then
+            print("[Party] Party gestart!")
+            return true
+        end
+        task.wait(0.6)
+    end
+    warn("[Party] StartBtn niet gevonden")
+    return false
+end
+
+local function TryCreateParty()
+    UpdateStatus("Party menu openen...")
+
+    if not IsPartyDifficultyWindowOpen() then
+        local deadline = tick() + 10
+        local opened = false
+        while tick() < deadline do
+            local btn = FindPartyOpenButton()
+            if btn and ClickGuiObject(btn) then opened = true break end
+            task.wait(0.1)
+        end
+        if not opened then
+            warn("[Party] Open knop niet gevonden")
+            UpdateStatus("❌ Party mislukt (open)")
+            return false
+        end
+        task.wait(0.5)
+    end
+
+    UpdateStatus("Difficulty selecteren...")
+    if not SelectPartyDifficulty(10) then UpdateStatus("❌ Party mislukt (difficulty)") return false end
+    task.wait(0.3)
+
+    UpdateStatus("Party aanmaken...")
+    if not ConfirmPartyCreate(10) then UpdateStatus("❌ Party mislukt (create)") return false end
+    task.wait(1)
+
+    UpdateStatus("Wachten op StartBtn...")
+    if not StartPartyAfterCreate(8) then UpdateStatus("❌ Party mislukt (start)") return false end
+
+    UpdateStatus("Party gestart! Teleporteren...")
     return true
 end
 
-local function OpenCreatePartyMenu()
-    local partyGui = GetPartyGui()
-    if not partyGui then
-        print("[Party] PartyGui niet gevonden!")
-        return false
-    end
-
-    local frame = partyGui:FindFirstChild("Frame")
-    if not frame then
-        print("[Party] Frame niet gevonden in PartyGui!")
-        return false
-    end
-
-    -- Zoek de createBg knop/frame
-    local createBg = frame:FindFirstChild("createBg")
-    if not createBg then
-        print("[Party] createBg niet gevonden!")
-        return false
-    end
-
-    -- Probeer een klikbare knop binnenin createBg te vinden
-    local btn = createBg:FindFirstChildOfClass("TextButton")
-        or createBg:FindFirstChildOfClass("ImageButton")
-
-    if btn then
-        print("[Party] Knop gevonden in createBg: " .. btn.Name)
-        ClickButton(btn)
-        return true
-    else
-        -- createBg zelf is mogelijk de knop
-        if createBg:IsA("TextButton") or createBg:IsA("ImageButton") then
-            print("[Party] createBg is zelf een knop, klikken...")
-            ClickButton(createBg)
+local function TryAgainDungeon(timeout)
+    UpdateStatus("Wachten op 'Opnieuw' knop...")
+    local deadline = tick() + (timeout or 15)
+    while tick() < deadline do
+        local btn = FindAgainButton()
+        if btn and ClickGuiObject(btn) then
+            print("[Again] Opnieuw knop geklikt!")
             return true
         end
-    end
-
-    print("[Party] Geen klikbare knop gevonden in createBg!")
-    return false
-end
-
-local function ConfirmCreateParty()
-    -- Na het openen, zoek een bevestigingsknop (bijv. "createSelectStageBg" of een confirm-knop)
-    task.wait(0.5)
-
-    local partyGui = GetPartyGui()
-    if not partyGui then return false end
-
-    local frame = partyGui:FindFirstChild("Frame")
-    if not frame then return false end
-
-    -- Probeer createSelectStageBg (stage selectie scherm)
-    local createSelectStageBg = frame:FindFirstChild("createSelectStageBg")
-    if createSelectStageBg and createSelectStageBg.Visible then
-        local confirmBtn = createSelectStageBg:FindFirstChildOfClass("TextButton")
-            or createSelectStageBg:FindFirstChildOfClass("ImageButton")
-        if confirmBtn then
-            print("[Party] Stage selectie bevestigen: " .. confirmBtn.Name)
-            ClickButton(confirmBtn)
-            return true
-        end
-    end
-
-    return false
-end
-
-function AutoCreateParty()
-    task.spawn(function()
-        print("[Party] Party aanmaken starten...")
-        UpdateStatus("Status: Party Aanmaken...")
-
-        -- Wacht tot PartyGui beschikbaar is
-        local timeout = 10
-        local partyGui = nil
-        repeat
-            partyGui = GetPartyGui()
-            task.wait(0.5)
-            timeout = timeout - 0.5
-        until partyGui or timeout <= 0
-
-        if not partyGui then
-            print("[Party] Timeout: PartyGui niet gevonden na 10s")
-            UpdateStatus("Status: Party GUI niet gevonden!")
-            return
-        end
-
-        -- Stap 1: Open create menu
-        local success = OpenCreatePartyMenu()
-        if not success then
-            UpdateStatus("Status: Party aanmaken mislukt!")
-            return
-        end
-
         task.wait(0.5)
-
-        -- Stap 2: Bevestig (optioneel, afhankelijk van game flow)
-        ConfirmCreateParty()
-
-        print("[Party] Party aangemaakt!")
-        UpdateStatus("Status: Party Aangemaakt ✓")
-    end)
-end
-
--- ==============================================================================
--- GUI (eerst aanmaken, zodat StatusLabel beschikbaar is)
--- ==============================================================================
-
-local MainTab = Window:NewTab("Main")
-local Section = MainTab:NewSection("Controls")
-
-local StatusLabel = Section:NewLabel("Status: Idle")
-
-local function UpdateStatus(text)
-    StatusLabel:UpdateLabel(text)
-end
-
--- ==============================================================================
--- LOGICA: DETECTIE
--- ==============================================================================
-
-local function IsInDungeon()
-    local stage = Workspace:FindFirstChild("Stage")
-    if not stage then return false end
-
-    if stage:FindFirstChild("baseStage") then
-        return false
     end
-
-    if stage:FindFirstChild("map1") or stage:FindFirstChild("map2") or stage:FindFirstChild("map3") then
-        return true
-    end
-
-    for _, child in pairs(stage:GetChildren()) do
-        if string.sub(child.Name, 1, 3) == "map" then
-            return true
-        end
-    end
-
+    warn("[Again] Opnieuw knop niet gevonden binnen timeout")
     return false
 end
 
 -- ==============================================================================
--- LOGICA: COMBAT & LOPEN
+-- COMBAT & LOPEN
 -- ==============================================================================
 
 local function FindClosestEnemy()
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
-
     local myPos = char.HumanoidRootPart.Position
-    local closest = nil
-    local minDist = _G.AttackRange
+    local closest, minDist = nil, _G.AttackRange
 
     local stage = Workspace:FindFirstChild("Stage")
     if stage then
         for _, map in pairs(stage:GetChildren()) do
             if map.Name ~= "baseStage" then
-                local monsterFolder = map:FindFirstChild("monster") or map:FindFirstChild("Enemies")
-                local searchTarget = monsterFolder and monsterFolder:GetChildren() or {}
-
-                for _, mob in pairs(searchTarget) do
+                local folder = map:FindFirstChild("monster") or map:FindFirstChild("Enemies")
+                for _, mob in pairs(folder and folder:GetChildren() or {}) do
                     if mob:FindFirstChild("Humanoid") and mob:FindFirstChild("HumanoidRootPart") then
                         if mob.Humanoid.Health > 0 then
                             local dist = (mob.HumanoidRootPart.Position - myPos).Magnitude
-                            if dist < minDist then
-                                minDist = dist
-                                closest = mob
-                            end
+                            if dist < minDist then minDist = dist closest = mob end
                         end
                     end
                 end
@@ -241,7 +269,6 @@ local function AttackTarget(target)
     if not target or not target:FindFirstChild("HumanoidRootPart") then return end
     local char = LocalPlayer.Character
     VirtualUser:CaptureController()
-
     if char and char:FindFirstChild("HumanoidRootPart") then
         char.HumanoidRootPart.CFrame = CFrame.new(
             char.HumanoidRootPart.Position,
@@ -257,9 +284,8 @@ end
 
 local function WalkToWithCombat(targetPos)
     local char = LocalPlayer.Character
-    local hum = char:WaitForChild("Humanoid")
+    local hum  = char:WaitForChild("Humanoid")
     local root = char:WaitForChild("HumanoidRootPart")
-
     hum:MoveTo(targetPos)
     local stuckTimer = 0
     local lastPos = root.Position
@@ -281,7 +307,7 @@ local function WalkToWithCombat(targetPos)
         end
 
         if (root.Position - lastPos).Magnitude < 0.5 then
-            stuckTimer = stuckTimer + 1
+            stuckTimer += 1
             if stuckTimer > 20 then hum.Jump = true stuckTimer = 0 end
         else
             stuckTimer = 0
@@ -292,40 +318,35 @@ local function WalkToWithCombat(targetPos)
 end
 
 -- ==============================================================================
--- START FUNCTIES
+-- DETECTIE
 -- ==============================================================================
 
-function StartDungeonLogic()
-    _G.RunRoute = true
-    task.spawn(function()
-        print("DUNGEON START: Wacht 10s op deur...")
-        UpdateStatus("Status: Wachten op deur (10s)...")
-
-        task.wait(10)
-
-        print("DUNGEON: Route starten...")
-        UpdateStatus("Status: Dungeon Farmen...")
-
-        for i, point in ipairs(DungeonRoute) do
-            if not _G.RunRoute then break end
-            WalkToWithCombat(point)
-        end
-        UpdateStatus("Status: Dungeon Klaar")
-    end)
+local function IsInDungeon()
+    local stage = Workspace:FindFirstChild("Stage")
+    if not stage then return false end
+    if stage:FindFirstChild("baseStage") then return false end
+    for _, child in pairs(stage:GetChildren()) do
+        if string.sub(child.Name, 1, 3) == "map" then return true end
+    end
+    return false
 end
 
-function StartLobbyLogic()
-    _G.RunRoute = true
-    task.spawn(function()
-        print("LOBBY START: Lopen naar startpunt...")
-        UpdateStatus("Status: Lopen in Lobby...")
+-- ==============================================================================
+-- HOOFD LOOP
+-- ==============================================================================
 
+local function RunDungeonLoop()
+    _G.RunRoute   = true
+    _G.CurrentRun = 0
+
+    task.spawn(function()
+        -- Stap 1: Lobby route lopen
+        UpdateStatus("Lobby route lopen...")
         local char = LocalPlayer.Character
-        local hum = char:FindFirstChild("Humanoid")
+        local hum  = char:FindFirstChild("Humanoid")
 
         for i, step in ipairs(LobbyRoute) do
-            if not _G.RunRoute then break end
-
+            if not _G.RunRoute then return end
             if step.Type == "Walk" then
                 print("Lobby stap:", i)
                 hum:MoveTo(step.Pos)
@@ -334,50 +355,113 @@ function StartLobbyLogic()
             task.wait(0.1)
         end
 
-        if _G.RunRoute then
-            -- Automatisch party aanmaken na lobby route
-            AutoCreateParty()
+        if not _G.RunRoute then return end
+
+        -- Stap 2: Party aanmaken
+        local ok = TryCreateParty()
+        if not ok then
+            UpdateStatus("❌ Gestopt (party mislukt)")
+            _G.RunRoute = false
+            return
+        end
+
+        -- Stap 3: Dungeon loop
+        while _G.RunRoute do
+            -- Controleer run limiet
+            if _G.MaxRuns > 0 and _G.CurrentRun >= _G.MaxRuns then
+                UpdateStatus("✅ Klaar! " .. _G.CurrentRun .. " runs gedaan")
+                _G.RunRoute = false
+                break
+            end
+
+            _G.CurrentRun += 1
+            UpdateRuns(_G.CurrentRun, _G.MaxRuns)
+            UpdateStatus("Run " .. _G.CurrentRun .. " | Wachten op deur (15s)...")
+            print("[Dungeon] Run", _G.CurrentRun, "gestart")
+
+            -- Wacht 15s op de deur
+            for i = 15, 1, -1 do
+                if not _G.RunRoute then return end
+                UpdateStatus("Run " .. _G.CurrentRun .. " | Deur opent in " .. i .. "s...")
+                task.wait(1)
+            end
+
+            -- Loop rechte lijn beginpunt → eindpunt
+            UpdateStatus("Run " .. _G.CurrentRun .. " | Dungeon lopen...")
+            WalkToWithCombat(DungeonEnd)
+
+            if not _G.RunRoute then return end
+
+            -- Dungeon klaar, wacht op "Opnieuw" knop
+            UpdateStatus("Run " .. _G.CurrentRun .. " | Dungeon klaar! Opnieuw klikken...")
+            print("[Dungeon] Run", _G.CurrentRun, "klaar")
+
+            -- Check of er nog runs overblijven
+            local nextRun = _G.CurrentRun + 1
+            local hasRunsLeft = _G.MaxRuns == 0 or nextRun <= _G.MaxRuns
+
+            if hasRunsLeft then
+                local again = TryAgainDungeon(20)
+                if not again then
+                    UpdateStatus("❌ Opnieuw knop niet gevonden")
+                    _G.RunRoute = false
+                    break
+                end
+                task.wait(2) -- wacht op laden
+            else
+                UpdateStatus("✅ Klaar! " .. _G.CurrentRun .. " runs gedaan")
+                _G.RunRoute = false
+                break
+            end
         end
     end)
 end
 
-function AutoDetectAndStart()
-    if IsInDungeon() then
-        print("Locatie: DUNGEON")
-        StartDungeonLogic()
+-- ==============================================================================
+-- GUI KNOPPEN & INSTELLINGEN
+-- ==============================================================================
+
+Section:NewDropdown("Moeilijkheid", "Easy / Normal / Hard", {"Easy", "Normal", "Hard"}, function(val)
+    _G.PartyDifficulty = val
+    print("Difficulty:", val)
+end)
+
+Section:NewDropdown("Aantal Runs", "Hoeveel runs uitvoeren", {"1","2","3","5","10","25","50","Oneindig"}, function(val)
+    if val == "Oneindig" then
+        _G.MaxRuns = 0
+        print("Runs: Oneindig")
     else
-        print("Locatie: LOBBY (baseStage gevonden)")
-        StartLobbyLogic()
+        _G.MaxRuns = tonumber(val)
+        print("Runs:", _G.MaxRuns)
     end
-end
-
--- ==============================================================================
--- GUI KNOPPEN
--- ==============================================================================
-
-Section:NewButton("Start Lobby Route", "Forceert de lobby loop route", function()
-    print("Knop ingedrukt: Start Lobby Route")
-    StartLobbyLogic()
+    UpdateRuns(_G.CurrentRun, _G.MaxRuns)
 end)
 
-Section:NewButton("Start Dungeon Route", "Forceert de dungeon route + kill", function()
-    print("Knop ingedrukt: Start Dungeon Route")
-    StartDungeonLogic()
-end)
-
-Section:NewButton("Party Aanmaken", "Maakt handmatig een party aan", function()
-    AutoCreateParty()
-end)
-
-Section:NewButton("Stop Alles", "Stopt direct", function()
-    _G.RunRoute = false
-    LocalPlayer.Character.Humanoid:MoveTo(LocalPlayer.Character.HumanoidRootPart.Position)
-    UpdateStatus("Status: Gestopt")
-end)
-
-Section:NewToggle("Auto Attack", "Aan/Uit", function(state)
+Section:NewToggle("Auto Attack", "Aan/Uit", true, function(state)
     _G.AutoAttack = state
 end)
 
--- Check bij opstarten
-AutoDetectAndStart()
+ControlSection:NewButton("▶ START", "Start de volledige loop", function()
+    if _G.RunRoute then
+        print("Al bezig!")
+        return
+    end
+    RunDungeonLoop()
+end)
+
+ControlSection:NewButton("⏹ STOP", "Stopt alles direct", function()
+    _G.RunRoute = false
+    pcall(function()
+        LocalPlayer.Character.Humanoid:MoveTo(LocalPlayer.Character.HumanoidRootPart.Position)
+    end)
+    UpdateStatus("Gestopt")
+    print("Gestopt door gebruiker")
+end)
+
+ControlSection:NewButton("🎉 Party Aanmaken", "Maakt handmatig een party aan", function()
+    task.spawn(TryCreateParty)
+end)
+
+-- Init labels
+UpdateRuns(0, _G.MaxRuns)
+UpdateStatus("Idle - Druk op START")
