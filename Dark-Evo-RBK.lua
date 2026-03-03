@@ -9,6 +9,20 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 local Workspace = game:GetService("Workspace")
 
 -- ==============================================================================
+-- DETECTIE (bovenaan zodat het bij boot gebruikt kan worden)
+-- ==============================================================================
+
+local function IsInDungeon()
+    local stage = Workspace:FindFirstChild("Stage")
+    if not stage then return false end
+    if stage:FindFirstChild("baseStage") then return false end
+    for _, child in pairs(stage:GetChildren()) do
+        if string.sub(child.Name, 1, 3) == "map" then return true end
+    end
+    return false
+end
+
+-- ==============================================================================
 -- GUI SETUP
 -- ==============================================================================
 
@@ -43,11 +57,17 @@ if _G.PeakEvo == nil then
         Difficulty   = "Easy",
         MaxRuns      = 0,
         CurrentRun   = 0,
-        Phase        = "IDLE", -- IDLE / LOBBY / PARTY / DUNGEON
+        Phase        = "IDLE",
     }
 end
 
-local S = _G.PeakEvo -- shorthand
+local S = _G.PeakEvo
+
+-- Na teleport: als we in dungeon zitten, forceer Running=true
+if IsInDungeon() and S.Phase == "DUNGEON" then
+    S.Running = true
+    print("[Boot] Dungeon gedetecteerd + Phase=DUNGEON, auto-hervat")
+end
 
 local LobbyRoute = {
     {Type = "Walk", Pos = Vector3.new(-1682.3, 6.5,   54.2)},
@@ -286,20 +306,6 @@ local function WalkToWithCombat(targetPos)
         lastPos = root.Position
         task.wait(0.1)
     end
-end
-
--- ==============================================================================
--- DETECTIE
--- ==============================================================================
-
-local function IsInDungeon()
-    local stage = Workspace:FindFirstChild("Stage")
-    if not stage then return false end
-    if stage:FindFirstChild("baseStage") then return false end
-    for _, child in pairs(stage:GetChildren()) do
-        if string.sub(child.Name, 1, 3) == "map" then return true end
-    end
-    return false
 end
 
 -- ==============================================================================
