@@ -283,6 +283,18 @@ local function WalkToWithCombat(targetPos)
     while (root.Position - targetPos).Magnitude > 4 do
         if not S.Running then hum:MoveTo(root.Position) return end
 
+        -- Check of eindscherm al zichtbaar is (boss dood voor eindpunt bereikt)
+        local gui          = LocalPlayer:FindFirstChild("PlayerGui")
+        local partyOverGui = gui and gui:FindFirstChild("PartyOverGui")
+        local frame        = partyOverGui and partyOverGui:FindFirstChild("Frame")
+        local bg           = frame and frame:FindFirstChild("bg")
+        local againBtn     = bg and bg:FindFirstChild("againbtn")
+        if againBtn then
+            print("[WalkToWithCombat] Eindscherm gedetecteerd, stoppen met lopen!")
+            hum:MoveTo(root.Position)
+            return
+        end
+
         local enemy = FindClosestEnemy()
         if enemy and S.AutoAttack then
             hum:MoveTo(root.Position)
