@@ -162,8 +162,14 @@ local function FindAgainButton()
     local partyOverGui = gui and gui:FindFirstChild("PartyOverGui")
     local frame        = partyOverGui and partyOverGui:FindFirstChild("Frame")
     local bg           = frame and frame:FindFirstChild("bg")
-    local btn          = bg and bg:FindFirstChild("againbtn")
-    if btn and btn.Visible then return btn end
+    if not bg then return nil end
+    
+    local btn = bg:FindFirstChild("againbtn")
+    print("[Again] bg gevonden, againbtn:", btn and "JA" or "NEE", 
+          btn and "Visible=" .. tostring(btn.Visible) or "")
+    
+    -- Geef terug ook als Visible=false, we proberen toch te klikken
+    if btn then return btn end
     return nil
 end
 
@@ -338,14 +344,15 @@ local function RunDungeonPhase()
 
     -- Wacht op opnieuw knop
     UpdateStatus("Dungeon klaar! Wachten op opnieuw...")
-    local deadline = tick() + 20
+    task.wait(3) -- wacht op GUI
+    
+    local deadline = tick() + 30
     while tick() < deadline do
         if not S.Running then return end
         local btn = FindAgainButton()
         if btn and ClickGuiObject(btn) then
-            print("[Again] Geklikt! Teleporteren naar nieuw dungeon...")
+            print("[Again] Geklikt!")
             UpdateStatus("Opnieuw geklikt! Laden...")
-            -- _G wordt reset bij server->server, maar bootInDungeon vangt dit op
             S.Phase = "DUNGEON"
             return
         end
