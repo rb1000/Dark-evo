@@ -29,6 +29,19 @@ local function IsInDungeon()
     return false
 end
 
+local function IsEndScreenVisible()
+    local gui          = LocalPlayer:FindFirstChild("PlayerGui")
+    local partyOverGui = gui and gui:FindFirstChild("PartyOverGui")
+    local frame        = partyOverGui and partyOverGui:FindFirstChild("Frame")
+    if not frame or not frame.Visible then return false end
+    local bg = frame:FindFirstChild("bg")
+    if not bg or not bg.Visible then return false end
+    -- Extra check: list moet zichtbaar zijn (alleen na dungeon clear)
+    local list = bg:FindFirstChild("list")
+    if not list or not list.Visible then return false end
+    return true
+end
+
 -- ==============================================================================
 -- STATE (_G blijft bewaard, maar bij server->server teleport reset Roblox _G)
 -- Oplossing: sla Running/Phase op in een aparte persistent check via dungeon detectie
@@ -158,13 +171,12 @@ local function FindPartyStartButton()
 end
 
 local function FindAgainButton()
+    if not IsEndScreenVisible() then return nil end
     local gui          = LocalPlayer:FindFirstChild("PlayerGui")
     local partyOverGui = gui and gui:FindFirstChild("PartyOverGui")
     local frame        = partyOverGui and partyOverGui:FindFirstChild("Frame")
     local bg           = frame and frame:FindFirstChild("bg")
-    local btn          = bg and bg:FindFirstChild("againbtn")
-    if btn and btn.Visible then return btn end
-    return nil
+    return bg and bg:FindFirstChild("againbtn")
 end
 -- ==============================================================================
 -- PARTY AANMAKEN
@@ -288,7 +300,7 @@ local function WalkToWithCombat(targetPos)
         local frame        = partyOverGui and partyOverGui:FindFirstChild("Frame")
         local bg           = frame and frame:FindFirstChild("bg")
         local againBtn     = bg and bg:FindFirstChild("againbtn")
-        if againBtn and againBtn.Visible then
+        if IsEndScreenVisible() then
             print("[WalkToWithCombat] Eindscherm gedetecteerd!")
             hum:MoveTo(root.Position)
             return
@@ -415,11 +427,12 @@ local function AutoStart()
     local bg           = frame and frame:FindFirstChild("bg")
     local againBtn     = bg and bg:FindFirstChild("againbtn")
 
-    if againBtn and againBtn.Visible and IsInDungeon() then
+    if IsEndScreenVisible() and IsInDungeon() then
         print("[AutoStart] Eindscherm in dungeon gevonden!")
         UpdateStatus("Eindscherm gevonden, opnieuw klikken...")
         task.wait(0.5)
-        ClickGuiObject(againBtn)
+        local btn = FindAgainButton()
+        if btn then ClickGuiObject(btn) end
         S.CurrentRun += 1
         UpdateRuns(S.CurrentRun, S.MaxRuns)
         S.Phase = "DUNGEON"
