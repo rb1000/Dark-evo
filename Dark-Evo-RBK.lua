@@ -432,7 +432,15 @@ local function AutoStart()
         UpdateStatus("Eindscherm gevonden, opnieuw klikken...")
         task.wait(0.5)
         local btn = FindAgainButton()
-        if btn then ClickGuiObject(btn) end
+        if btn then 
+            ClickGuiObject(btn)
+            -- Wacht tot eindscherm verdwijnt (teleport begint)
+            local waitDeadline = tick() + 10
+            while tick() < waitDeadline do
+                if not IsEndScreenVisible() then break end
+                task.wait(0.2)
+            end
+        end
         S.CurrentRun += 1
         UpdateRuns(S.CurrentRun, S.MaxRuns)
         S.Phase = "DUNGEON"
