@@ -456,14 +456,19 @@ end)
 -- AUTO START NA TELEPORT
 -- ==============================================================================
 
--- Als _G.PeakEvo.Running = true was voor teleport, automatisch doorgaan
 UpdateStatus("Idle - Druk op START")
 UpdateRuns(S.CurrentRun, S.MaxRuns)
 
 if S.Running then
-    print("[Boot] Script herstart, Running=true, Phase=" .. S.Phase)
-    task.wait(2) -- wacht even tot de game geladen is
+    print("[Boot] Hervat - Phase:", S.Phase)
+    task.wait(2)
+    task.spawn(AutoStart)
+elseif IsInDungeon() and S.Phase ~= "IDLE" then
+    -- Vangnet: in dungeon maar Running was false geworden
+    print("[Boot] Vangnet: in dungeon, Running hersteld")
+    S.Running = true
+    task.wait(2)
     task.spawn(AutoStart)
 else
-    print("[Boot] Fresh start, wacht op START knop")
+    print("[Boot] Fresh start")
 end
