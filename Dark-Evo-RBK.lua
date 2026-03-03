@@ -19,10 +19,12 @@ local MijnRoute = {
 }
 
 -- Instellingen
-_G.RunRoute = false
-_G.AutoFarm = false -- Zet dit aan in GUI na het starten van dungeon
-_G.PartyDifficulty = "Normal"
-_G.AutoReexecuteOnTeleport = true
+_G.RunRoute = _G.RunRoute or false
+_G.AutoFarm = _G.AutoFarm or false -- Zet dit aan in GUI na het starten van dungeon
+_G.PartyDifficulty = _G.PartyDifficulty or "Normal"
+if _G.AutoReexecuteOnTeleport == nil then
+    _G.AutoReexecuteOnTeleport = true
+end
 _G.ScriptFilePath = _G.ScriptFilePath or "Dark-Evo-RBK.lua"
 _G.ScriptSourceUrl = _G.ScriptSourceUrl or "https://raw.githubusercontent.com/rb1000/Dark-evo/main/Dark-Evo-RBK.lua"
 _G.TeleportReexecuteCode = _G.TeleportReexecuteCode or ""
@@ -43,11 +45,18 @@ local function BuildTeleportReexecuteCode()
         return _G.TeleportReexecuteCode
     end
 
+    local stateBootstrap = string.format([[
+_G.RunRoute = false
+_G.AutoFarm = true
+_G.PartyDifficulty = %q
+]], tostring(_G.PartyDifficulty))
+
     if type(_G.ScriptSourceUrl) == "string" and _G.ScriptSourceUrl ~= "" then
         return string.format([[
 task.spawn(function()
     repeat task.wait() until game:IsLoaded()
     task.wait(%s)
+    %s
     local ok, result = pcall(function()
         return game:HttpGet(%q)
     end)
@@ -62,7 +71,7 @@ task.spawn(function()
     end
     fn()
 end)
-]], tostring(_G.TeleportReexecuteDelay), _G.ScriptSourceUrl)
+]], tostring(_G.TeleportReexecuteDelay), stateBootstrap, _G.ScriptSourceUrl)
     end
 
     if type(_G.ScriptFilePath) == "string" and _G.ScriptFilePath ~= "" then
@@ -70,6 +79,7 @@ end)
 task.spawn(function()
     repeat task.wait() until game:IsLoaded()
     task.wait(%s)
+    %s
     local readFn = readfile or read_file or (syn and (syn.readfile or syn.read_file))
     local isFileFn = isfile or is_file or (syn and (syn.isfile or syn.is_file))
     if not readFn then
@@ -101,7 +111,7 @@ task.spawn(function()
     end
     fn()
 end)
-]], tostring(_G.TeleportReexecuteDelay), _G.ScriptFilePath, _G.ScriptFilePath, _G.ScriptFilePath)
+]], tostring(_G.TeleportReexecuteDelay), stateBootstrap, _G.ScriptFilePath, _G.ScriptFilePath, _G.ScriptFilePath)
     end
 
     return nil
@@ -187,6 +197,25 @@ local function FindPartyCreateButton()
 
     if createBtn and createBtn:IsA("GuiObject") and createBtn.Visible then
         return createBtn
+    end
+
+    return nil
+end
+
+local function FindPartyStartButton()
+    local gui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not gui then
+        return nil
+    end
+
+    local partyGui = gui:FindFirstChild("PartyGui")
+    local frame = partyGui and partyGui:FindFirstChild("Frame")
+    local roomBg = frame and frame:FindFirstChild("roomBg")
+    local right = roomBg and roomBg:FindFirstChild("right")
+    local startBtn = right and right:FindFirstChild("StartBtn")
+
+    if startBtn and startBtn:IsA("GuiObject") and startBtn.Visible then
+        return startBtn
     end
 
     return nil
@@ -295,8 +324,8 @@ local function StartPartyAfterCreate(totalTimeout, retryDelay)
     local delayBetweenTries = retryDelay or 0.6
 
     while tick() < deadline do
-        local startedParty = ConfirmPartyCreate(1.5)
-        if startedParty then
+        local startButton = FindPartyStartButton()
+        if startButton and ClickGuiObject(startButton) then
             return true
         end
 
