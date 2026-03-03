@@ -31,15 +31,23 @@ local function UpdateRuns(current, max)
 end
 
 -- ==============================================================================
--- INSTELLINGEN
+-- INSTELLINGEN (_G zodat ze teleport overleven)
 -- ==============================================================================
 
-_G.RunRoute  = false
-_G.AutoAttack = true
-_G.AttackRange = 45
-_G.PartyDifficulty = "Easy"
-_G.MaxRuns = 0      -- 0 = oneindig
-_G.CurrentRun = 0
+-- Alleen initialiseren als ze nog niet bestaan (na teleport bewaren we ze)
+if _G.PeakEvo == nil then
+    _G.PeakEvo = {
+        Running      = false,
+        AutoAttack   = true,
+        AttackRange  = 45,
+        Difficulty   = "Easy",
+        MaxRuns      = 0,
+        CurrentRun   = 0,
+        Phase        = "IDLE", -- IDLE / LOBBY / PARTY / DUNGEON
+    }
+end
+
+local S = _G.PeakEvo -- shorthand
 
 local LobbyRoute = {
     {Type = "Walk", Pos = Vector3.new(-1682.3, 6.5,   54.2)},
@@ -49,9 +57,7 @@ local LobbyRoute = {
     {Type = "Walk", Pos = Vector3.new(-1744.0, 22.6, -322.5)},
 }
 
--- Rechte lijn: beginpunt → eindpunt
-local DungeonStart = Vector3.new(-877.7, 31.6,  621.3)
-local DungeonEnd   = Vector3.new(-880.3, 31.6, -507.3)
+local DungeonEnd = Vector3.new(-880.3, 31.6, -507.3)
 
 -- ==============================================================================
 -- KLIK SYSTEEM
@@ -75,7 +81,7 @@ local function ClickGuiObject(guiObject)
 
     VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true,  game, 0)
     VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 0)
-    print("GUI klik op:", guiObject:GetFullName())
+    print("[Klik]", guiObject:GetFullName())
     return true
 end
 
@@ -90,7 +96,7 @@ local function FindPartyDifficultyButton(difficulty)
     local frame    = partyGui and partyGui:FindFirstChild("Frame")
     local createBg = frame and frame:FindFirstChild("createBg")
     local left     = createBg and createBg:FindFirstChild("left")
-    local btnName  = buttonMap[difficulty or _G.PartyDifficulty]
+    local btnName  = buttonMap[difficulty or S.Difficulty]
     local btn      = left and btnName and left:FindFirstChild(btnName)
     if btn and btn:IsA("GuiObject") and btn.Visible then return btn end
     return nil
@@ -145,51 +151,8 @@ local function FindAgainButton()
     return nil
 end
 
-local function SelectPartyDifficulty(timeout)
-    local deadline = tick() + (timeout or 5)
-    while tick() < deadline do
-        local btn = FindPartyDifficultyButton(_G.PartyDifficulty)
-        if btn and ClickGuiObject(btn) then
-            print("[Party] Difficulty:", _G.PartyDifficulty)
-            return true
-        end
-        task.wait(0.05)
-    end
-    warn("[Party] Difficulty knop niet gevonden")
-    return false
-end
-
-local function ConfirmPartyCreate(timeout)
-    local deadline = tick() + (timeout or 5)
-    while tick() < deadline do
-        local btn = FindPartyCreateButton()
-        if btn and ClickGuiObject(btn) then
-            print("[Party] Create geklikt")
-            return true
-        end
-        task.wait(0.05)
-    end
-    warn("[Party] createBtn niet gevonden")
-    return false
-end
-
-local function StartPartyAfterCreate(timeout)
-    local deadline = tick() + (timeout or 8)
-    while tick() < deadline do
-        local btn = FindPartyStartButton()
-        if btn and ClickGuiObject(btn) then
-            print("[Party] Party gestart!")
-            return true
-        end
-        task.wait(0.6)
-    end
-    warn("[Party] StartBtn niet gevonden")
-    return false
-end
-
 local function TryCreateParty()
     UpdateStatus("Party menu openen...")
-
     if not IsPartyDifficultyWindowOpen() then
         local deadline = tick() + 10
         local opened = false
@@ -199,40 +162,42 @@ local function TryCreateParty()
             task.wait(0.1)
         end
         if not opened then
-            warn("[Party] Open knop niet gevonden")
-            UpdateStatus("❌ Party mislukt (open)")
+            UpdateStatus("❌ Party open knop niet gevonden")
             return false
         end
         task.wait(0.5)
     end
 
     UpdateStatus("Difficulty selecteren...")
-    if not SelectPartyDifficulty(10) then UpdateStatus("❌ Party mislukt (difficulty)") return false end
+    local d_deadline = tick() + 10
+    while tick() < d_deadline do
+        local btn = FindPartyDifficultyButton(S.Difficulty)
+        if btn and ClickGuiObject(btn) then break end
+        task.wait(0.05)
+    end
     task.wait(0.3)
 
     UpdateStatus("Party aanmaken...")
-    if not ConfirmPartyCreate(10) then UpdateStatus("❌ Party mislukt (create)") return false end
+    local c_deadline = tick() + 10
+    while tick() < c_deadline do
+        local btn = FindPartyCreateButton()
+        if btn and ClickGuiObject(btn) then break end
+        task.wait(0.05)
+    end
     task.wait(1)
 
     UpdateStatus("Wachten op StartBtn...")
-    if not StartPartyAfterCreate(8) then UpdateStatus("❌ Party mislukt (start)") return false end
-
-    UpdateStatus("Party gestart! Teleporteren...")
-    return true
-end
-
-local function TryAgainDungeon(timeout)
-    UpdateStatus("Wachten op 'Opnieuw' knop...")
-    local deadline = tick() + (timeout or 15)
-    while tick() < deadline do
-        local btn = FindAgainButton()
+    local s_deadline = tick() + 8
+    while tick() < s_deadline do
+        local btn = FindPartyStartButton()
         if btn and ClickGuiObject(btn) then
-            print("[Again] Opnieuw knop geklikt!")
+            UpdateStatus("Party gestart! Teleporteren...")
             return true
         end
-        task.wait(0.5)
+        task.wait(0.6)
     end
-    warn("[Again] Opnieuw knop niet gevonden binnen timeout")
+
+    UpdateStatus("❌ StartBtn niet gevonden")
     return false
 end
 
@@ -244,7 +209,7 @@ local function FindClosestEnemy()
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
     local myPos = char.HumanoidRootPart.Position
-    local closest, minDist = nil, _G.AttackRange
+    local closest, minDist = nil, S.AttackRange
 
     local stage = Workspace:FindFirstChild("Stage")
     if stage then
@@ -291,18 +256,18 @@ local function WalkToWithCombat(targetPos)
     local lastPos = root.Position
 
     while (root.Position - targetPos).Magnitude > 4 do
-        if not _G.RunRoute then hum:MoveTo(root.Position) return end
+        if not S.Running then hum:MoveTo(root.Position) return end
 
         local enemy = FindClosestEnemy()
-        if enemy and _G.AutoAttack then
+        if enemy and S.AutoAttack then
             hum:MoveTo(root.Position)
             repeat
-                if not _G.RunRoute then return end
+                if not S.Running then return end
                 AttackTarget(enemy)
                 if enemy.HumanoidRootPart then hum:MoveTo(enemy.HumanoidRootPart.Position) end
                 task.wait(0.1)
             until not enemy or not enemy.Parent or enemy.Humanoid.Health <= 0
-                or (root.Position - enemy.HumanoidRootPart.Position).Magnitude > _G.AttackRange + 10
+                or (root.Position - enemy.HumanoidRootPart.Position).Magnitude > S.AttackRange + 10
             hum:MoveTo(targetPos)
         end
 
@@ -332,136 +297,161 @@ local function IsInDungeon()
 end
 
 -- ==============================================================================
--- HOOFD LOOP
+-- FASE LOGICA
 -- ==============================================================================
 
-local function RunDungeonLoop()
-    _G.RunRoute   = true
-    _G.CurrentRun = 0
+local function RunDungeonPhase()
+    S.Phase = "DUNGEON"
+    UpdateStatus("Run " .. S.CurrentRun .. " | Wachten op deur...")
 
-    task.spawn(function()
-        -- Stap 1: Lobby route lopen
-        UpdateStatus("Lobby route lopen...")
-        local char = LocalPlayer.Character
-        local hum  = char:FindFirstChild("Humanoid")
+    -- 15 seconden countdown
+    for i = 15, 1, -1 do
+        if not S.Running then return end
+        UpdateStatus("Run " .. S.CurrentRun .. " | Deur opent in " .. i .. "s...")
+        task.wait(1)
+    end
 
-        for i, step in ipairs(LobbyRoute) do
-            if not _G.RunRoute then return end
-            if step.Type == "Walk" then
-                print("Lobby stap:", i)
-                hum:MoveTo(step.Pos)
-                hum.MoveToFinished:Wait(5)
-            end
-            task.wait(0.1)
-        end
+    UpdateStatus("Run " .. S.CurrentRun .. " | Dungeon lopen + killen...")
+    WalkToWithCombat(DungeonEnd)
+    if not S.Running then return end
 
-        if not _G.RunRoute then return end
+    -- Dungeon klaar
+    S.CurrentRun += 1
+    UpdateRuns(S.CurrentRun, S.MaxRuns)
 
-        -- Stap 2: Party aanmaken
-        local ok = TryCreateParty()
-        if not ok then
-            UpdateStatus("❌ Gestopt (party mislukt)")
-            _G.RunRoute = false
+    -- Check of we klaar zijn
+    if S.MaxRuns > 0 and S.CurrentRun > S.MaxRuns then
+        UpdateStatus("✅ Klaar! " .. S.MaxRuns .. " runs gedaan")
+        S.Running = false
+        S.Phase = "IDLE"
+        return
+    end
+
+    -- Klik opnieuw
+    UpdateStatus("Wachten op 'Opnieuw' knop...")
+    local deadline = tick() + 20
+    while tick() < deadline do
+        if not S.Running then return end
+        local btn = FindAgainButton()
+        if btn and ClickGuiObject(btn) then
+            print("[Again] Opnieuw geklikt, teleporteren...")
+            UpdateStatus("Opnieuw geklikt! Teleporteren...")
+            -- Script herstart automatisch via auto-exec na teleport
+            -- _G.PeakEvo.Phase = "DUNGEON" blijft bewaard
+            S.Phase = "DUNGEON"
             return
         end
+        task.wait(0.5)
+    end
 
-        -- Stap 3: Dungeon loop
-        while _G.RunRoute do
-            -- Controleer run limiet
-            if _G.MaxRuns > 0 and _G.CurrentRun >= _G.MaxRuns then
-                UpdateStatus("✅ Klaar! " .. _G.CurrentRun .. " runs gedaan")
-                _G.RunRoute = false
-                break
-            end
+    warn("[Again] Opnieuw knop niet gevonden")
+    UpdateStatus("❌ Opnieuw knop niet gevonden")
+    S.Running = false
+    S.Phase = "IDLE"
+end
 
-            _G.CurrentRun += 1
-            UpdateRuns(_G.CurrentRun, _G.MaxRuns)
-            UpdateStatus("Run " .. _G.CurrentRun .. " | Wachten op deur (15s)...")
-            print("[Dungeon] Run", _G.CurrentRun, "gestart")
+local function RunLobbyPhase()
+    S.Phase = "LOBBY"
+    UpdateStatus("Lobby route lopen...")
 
-            -- Wacht 15s op de deur
-            for i = 15, 1, -1 do
-                if not _G.RunRoute then return end
-                UpdateStatus("Run " .. _G.CurrentRun .. " | Deur opent in " .. i .. "s...")
-                task.wait(1)
-            end
+    local char = LocalPlayer.Character
+    local hum  = char:FindFirstChild("Humanoid")
 
-            -- Loop rechte lijn beginpunt → eindpunt
-            UpdateStatus("Run " .. _G.CurrentRun .. " | Dungeon lopen...")
-            WalkToWithCombat(DungeonEnd)
-
-            if not _G.RunRoute then return end
-
-            -- Dungeon klaar, wacht op "Opnieuw" knop
-            UpdateStatus("Run " .. _G.CurrentRun .. " | Dungeon klaar! Opnieuw klikken...")
-            print("[Dungeon] Run", _G.CurrentRun, "klaar")
-
-            -- Check of er nog runs overblijven
-            local nextRun = _G.CurrentRun + 1
-            local hasRunsLeft = _G.MaxRuns == 0 or nextRun <= _G.MaxRuns
-
-            if hasRunsLeft then
-                local again = TryAgainDungeon(20)
-                if not again then
-                    UpdateStatus("❌ Opnieuw knop niet gevonden")
-                    _G.RunRoute = false
-                    break
-                end
-                task.wait(2) -- wacht op laden
-            else
-                UpdateStatus("✅ Klaar! " .. _G.CurrentRun .. " runs gedaan")
-                _G.RunRoute = false
-                break
-            end
+    for i, step in ipairs(LobbyRoute) do
+        if not S.Running then return end
+        if step.Type == "Walk" then
+            hum:MoveTo(step.Pos)
+            hum.MoveToFinished:Wait(5)
         end
-    end)
+        task.wait(0.1)
+    end
+
+    if not S.Running then return end
+
+    S.Phase = "PARTY"
+    local ok = TryCreateParty()
+    if not ok then
+        UpdateStatus("❌ Party mislukt, gestopt")
+        S.Running = false
+        S.Phase = "IDLE"
+    end
+    -- Na party -> teleport -> script herstart -> IsInDungeon() = true -> RunDungeonPhase()
+end
+
+local function AutoStart()
+    if not S.Running then return end
+
+    UpdateRuns(S.CurrentRun, S.MaxRuns)
+
+    if IsInDungeon() then
+        -- Script herstart na teleport, ga direct door met dungeon
+        print("[AutoStart] In dungeon gedetecteerd, fase:", S.Phase)
+        S.CurrentRun += 1
+        UpdateRuns(S.CurrentRun, S.MaxRuns)
+        UpdateStatus("Run " .. S.CurrentRun .. " | Dungeon gedetecteerd!")
+        task.wait(1)
+        RunDungeonPhase()
+    else
+        -- In lobby, begin van voor af aan
+        print("[AutoStart] In lobby gedetecteerd")
+        RunLobbyPhase()
+    end
 end
 
 -- ==============================================================================
--- GUI KNOPPEN & INSTELLINGEN
+-- GUI KNOPPEN
 -- ==============================================================================
 
 Section:NewDropdown("Moeilijkheid", "Easy / Normal / Hard", {"Easy", "Normal", "Hard"}, function(val)
-    _G.PartyDifficulty = val
+    S.Difficulty = val
     print("Difficulty:", val)
 end)
 
 Section:NewDropdown("Aantal Runs", "Hoeveel runs uitvoeren", {"1","2","3","5","10","25","50","Oneindig"}, function(val)
-    if val == "Oneindig" then
-        _G.MaxRuns = 0
-        print("Runs: Oneindig")
-    else
-        _G.MaxRuns = tonumber(val)
-        print("Runs:", _G.MaxRuns)
-    end
-    UpdateRuns(_G.CurrentRun, _G.MaxRuns)
+    S.MaxRuns = val == "Oneindig" and 0 or tonumber(val)
+    S.CurrentRun = 0
+    UpdateRuns(0, S.MaxRuns)
+    print("Runs ingesteld:", val)
 end)
 
 Section:NewToggle("Auto Attack", "Aan/Uit", true, function(state)
-    _G.AutoAttack = state
+    S.AutoAttack = state
 end)
 
 ControlSection:NewButton("▶ START", "Start de volledige loop", function()
-    if _G.RunRoute then
-        print("Al bezig!")
-        return
-    end
-    RunDungeonLoop()
+    if S.Running then print("Al bezig!") return end
+    S.Running    = true
+    S.CurrentRun = 0
+    S.Phase      = "LOBBY"
+    UpdateRuns(0, S.MaxRuns)
+    task.spawn(AutoStart)
 end)
 
 ControlSection:NewButton("⏹ STOP", "Stopt alles direct", function()
-    _G.RunRoute = false
+    S.Running = false
+    S.Phase   = "IDLE"
     pcall(function()
         LocalPlayer.Character.Humanoid:MoveTo(LocalPlayer.Character.HumanoidRootPart.Position)
     end)
     UpdateStatus("Gestopt")
-    print("Gestopt door gebruiker")
 end)
 
 ControlSection:NewButton("🎉 Party Aanmaken", "Maakt handmatig een party aan", function()
     task.spawn(TryCreateParty)
 end)
 
--- Init labels
-UpdateRuns(0, _G.MaxRuns)
+-- ==============================================================================
+-- AUTO START NA TELEPORT
+-- ==============================================================================
+
+-- Als _G.PeakEvo.Running = true was voor teleport, automatisch doorgaan
 UpdateStatus("Idle - Druk op START")
+UpdateRuns(S.CurrentRun, S.MaxRuns)
+
+if S.Running then
+    print("[Boot] Script herstart, Running=true, Phase=" .. S.Phase)
+    task.wait(2) -- wacht even tot de game geladen is
+    task.spawn(AutoStart)
+else
+    print("[Boot] Fresh start, wacht op START knop")
+end
