@@ -24,7 +24,7 @@ _G.AutoFarm = false -- Zet dit aan in GUI na het starten van dungeon
 _G.PartyDifficulty = "Normal"
 _G.AutoReexecuteOnTeleport = true
 _G.ScriptFilePath = _G.ScriptFilePath or "Dark-Evo-RBK.lua"
-_G.ScriptSourceUrl = _G.ScriptSourceUrl or ""
+_G.ScriptSourceUrl = _G.ScriptSourceUrl or "https://raw.githubusercontent.com/rb1000/Dark-evo/main/Dark-Evo-RBK.lua"
 _G.TeleportReexecuteCode = _G.TeleportReexecuteCode or ""
 _G.TeleportReexecuteDelay = _G.TeleportReexecuteDelay or 4
 
@@ -290,6 +290,23 @@ local function ConfirmPartyCreate(timeout)
     return false
 end
 
+local function StartPartyAfterCreate(totalTimeout, retryDelay)
+    local deadline = tick() + (totalTimeout or 8)
+    local delayBetweenTries = retryDelay or 0.6
+
+    while tick() < deadline do
+        local startedParty = ConfirmPartyCreate(1.5)
+        if startedParty then
+            return true
+        end
+
+        task.wait(delayBetweenTries)
+    end
+
+    warn("Start Party klik niet gelukt binnen timeout.")
+    return false
+end
+
 local function TryCreateParty()
     if not IsPartyDifficultyWindowOpen() then
         local openedPartyMenu = ClickVisibleButton("Create a Party", 10)
@@ -317,7 +334,7 @@ local function TryCreateParty()
 
     QueueScriptOnTeleport()
 
-    local startedParty = ConfirmPartyCreate(10)
+    local startedParty = StartPartyAfterCreate(8, 0.75)
     if not startedParty then
         warn("Party start createBtn niet gevonden.")
         return false
@@ -360,7 +377,12 @@ function RunTheRoute()
             task.wait(0.2) -- Korte pauze tussen stappen
         end
 
-        TryCreateParty()
+        local partyStarted = TryCreateParty()
+        if not partyStarted then
+            warn("Party flow mislukt na route.")
+            _G.RunRoute = false
+            return
+        end
 
         print("Route klaar! Nu auto-farmen...")
         _G.RunRoute = false -- Zet route uit
