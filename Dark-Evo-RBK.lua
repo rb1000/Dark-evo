@@ -1,19 +1,13 @@
 -- ============================================================
 -- Peak Evo - RB1000 | Stable Build voor Velocity
--- v1.3 - Teleport-proof state + deur + loading detectie
--- 
--- HOE HET WERKT NA TELEPORT:
---   Loader herlaadt dit script → _G.PeakEvo nog intact
---   → WaitForWorldLoad() wacht tot Stage geladen is
---   → _G.PeakEvo.Phase bepaalt wat er moet gebeuren
---   → DUNGEON phase = LoadingGui wachten + deur wachten + lopen
+-- v1.4 - 12s deur timer + enemy counter + betere logging
 -- ============================================================
 
 local ok, Library = pcall(function()
     return loadstring(game:HttpGet("https://raw.githubusercontent.com/xHeptc/Kavo-UI-Library/main/source.lua"))()
 end)
 if not ok or not Library then
-    warn("[PeakEvo] UI Library laden mislukt:", tostring(Library))
+    warn("[PeakEvo] FATAL: UI Library laden mislukt: " .. tostring(Library))
     return
 end
 
@@ -24,6 +18,7 @@ local Window = Library.CreateLib("Peak Evo - RB1000 (Stable)", "DarkTheme")
 -- ==============================================================================
 local function GetService(name)
     local s, r = pcall(function() return game:GetService(name) end)
+    if not s then warn("[PeakEvo] Service niet gevonden: " .. name) end
     return s and r or nil
 end
 
@@ -33,7 +28,19 @@ local VirtualUser         = GetService("VirtualUser")
 local Workspace           = game.Workspace
 local LocalPlayer         = Players and Players.LocalPlayer
 
-if not LocalPlayer then warn("[PeakEvo] Geen LocalPlayer!") return end
+if not LocalPlayer then warn("[PeakEvo] FATAL: Geen LocalPlayer!") return end
+
+-- ==============================================================================
+-- LOGGING
+-- Prefix geeft aan uit welke module het komt
+-- ==============================================================================
+local LOG_PREFIX = "[PeakEvo]"
+local function Log(module, msg)
+    print(LOG_PREFIX .. "[" .. module .. "] " .. tostring(msg))
+end
+local function Warn(module, msg)
+    warn(LOG_PREFIX .. "[" .. module .. "] " .. tostring(msg))
+end
 
 -- ==============================================================================
 -- ANTI-AFK
@@ -43,14 +50,13 @@ pcall(function()
         pcall(function()
             VirtualUser:CaptureController()
             VirtualUser:ClickButton2(Vector2.new(0, 0))
+            Log("AFK", "Kick voorkomen")
         end)
     end)
 end)
 
 -- ==============================================================================
 -- STATE — _G overleeft elke teleport
--- Alleen aanmaken als het nog niet bestaat (fresh start)
--- Na teleport blijven alle waarden bewaard
 -- ==============================================================================
 if type(_G.PeakEvo) ~= "table" then
     _G.PeakEvo = {
@@ -60,25 +66,29 @@ if type(_G.PeakEvo) ~= "table" then
         Difficulty   = "Easy",
         MaxRuns      = 0,
         CurrentRun   = 0,
-        -- Fases: IDLE → LOBBY → PARTY → DUNGEON → (loop)
         Phase        = "IDLE",
+        DoorWait     = 12, -- seconden wachten op deur
     }
 end
 local S = _G.PeakEvo
-print("[Boot] State geladen: Running=" .. tostring(S.Running) .. " Phase=" .. S.Phase .. " Run=" .. S.CurrentRun)
+Log("Boot", "State geladen | Running=" .. tostring(S.Running) .. " Phase=" .. S.Phase .. " Run=" .. S.CurrentRun)
 
 -- ==============================================================================
--- GUI SETUP (vroeg definiëren zodat UpdateStatus overal beschikbaar is)
+-- GUI SETUP
 -- ==============================================================================
 local MainTab        = Window:NewTab("Main")
 local Section        = MainTab:NewSection("Instellingen")
 local ControlSection = MainTab:NewSection("Controls")
+local StatsSection   = MainTab:NewSection("Live Stats")
+
 local StatusLabel    = Section:NewLabel("Status: Idle")
-local RunsLabel      = Section:NewLabel("Runs: 0 / 0")
+local RunsLabel      = StatsSection:NewLabel("Runs: 0 / 0")
+local EnemyLabel     = StatsSection:NewLabel("Enemies: -")
+local PhaseLabel     = StatsSection:NewLabel("Fase: IDLE")
 
 local function UpdateStatus(text)
     pcall(function() StatusLabel:UpdateLabel("Status: " .. tostring(text)) end)
-    print("[Status]", text)
+    Log("Status", text)
 end
 
 local function UpdateRuns(current, max)
@@ -88,57 +98,99 @@ local function UpdateRuns(current, max)
     end)
 end
 
+local function UpdatePhaseLabel(phase)
+    pcall(function() PhaseLabel:UpdateLabel("Fase: " .. tostring(phase)) end)
+end
+
+local function UpdateEnemyLabel(alive, total)
+    pcall(function()
+        if alive == nil then
+            EnemyLabel:UpdateLabel("Enemies: -")
+        else
+            EnemyLabel:UpdateLabel("Enemies: " .. alive .. " / " .. total .. " over")
+        end
+    end)
+end
+
 -- ==============================================================================
 -- WERELD LADEN WACHTER
--- Na een teleport is Workspace nog leeg. Wacht tot Stage bestaat en children heeft.
 -- ==============================================================================
 local function WaitForWorldLoad(maxWait)
     maxWait = maxWait or 15
     local deadline = tick() + maxWait
-    UpdateStatus("Wereld laden...")
     while tick() < deadline do
         local ok2, ready = pcall(function()
             local stage = Workspace:FindFirstChild("Stage")
             return stage ~= nil and #stage:GetChildren() > 0
         end)
         if ok2 and ready then
-            print("[World] Stage geladen")
-            task.wait(0.5) -- klein extra moment voor stabiliteit
+            Log("World", "Stage geladen")
+            task.wait(0.5)
             return true
         end
         task.wait(0.3)
     end
-    warn("[World] Stage niet gevonden na " .. maxWait .. "s")
+    Warn("World", "Stage niet gevonden na " .. maxWait .. "s")
     return false
 end
 
 -- ==============================================================================
 -- DETECTIE: IN DUNGEON?
--- baseStage = lobby, map* = dungeon
 -- ==============================================================================
 local function IsInDungeon()
     local ok2, result = pcall(function()
         local stage = Workspace:FindFirstChild("Stage")
         if not stage then return false end
         if stage:FindFirstChild("baseStage") then
-            print("[Detect] baseStage gevonden = lobby")
+            Log("Detect", "baseStage gevonden = lobby")
             return false
         end
         for _, child in pairs(stage:GetChildren()) do
             if string.sub(child.Name, 1, 3) == "map" then
-                print("[Detect] Dungeon map gevonden:", child.Name)
+                Log("Detect", "Dungeon map gevonden: " .. child.Name)
                 return true
             end
         end
-        print("[Detect] Geen map gevonden in Stage")
+        Log("Detect", "Geen map in Stage = lobby")
         return false
     end)
     return ok2 and result or false
 end
 
 -- ==============================================================================
+-- ENEMY COUNTER
+-- Telt alle levende enemies in de huidige dungeon map
+-- ==============================================================================
+local function CountEnemies()
+    local alive = 0
+    local total = 0
+    pcall(function()
+        local stage = Workspace:FindFirstChild("Stage")
+        if not stage then return end
+        for _, map in pairs(stage:GetChildren()) do
+            if string.sub(map.Name, 1, 3) == "map" then
+                local folder = map:FindFirstChild("monster") or map:FindFirstChild("Enemies")
+                if folder then
+                    for _, mob in pairs(folder:GetChildren()) do
+                        pcall(function()
+                            local hum = mob:FindFirstChild("Humanoid")
+                            if hum then
+                                total += 1
+                                if hum.Health > 0 then
+                                    alive += 1
+                                end
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+    end)
+    return alive, total
+end
+
+-- ==============================================================================
 -- LOADINGGUI WACHTER
--- PlayerGui > LoadingGui moet weg zijn voordat we beginnen
 -- ==============================================================================
 local function WaitForLoadingGui(maxWait)
     maxWait = maxWait or 30
@@ -155,76 +207,26 @@ local function WaitForLoadingGui(maxWait)
             UpdateStatus("Loading screen...")
             task.wait(0.3)
         else
-            print("[Loading] Klaar")
+            Log("Loading", "LoadingGui weg, doorgaan")
             task.wait(0.2)
             return
         end
     end
-    warn("[Loading] Timeout 30s, toch doorgaan")
+    Warn("Loading", "Timeout 30s, toch doorgaan")
 end
 
 -- ==============================================================================
--- DEUR WACHTER
--- Zoekt door1 in Stage > map* > Art
--- Wacht tot door1.Parent == nil (object verwijderd = timer op 0)
+-- DEUR WACHTER — simpele vaste timer
 -- ==============================================================================
-local function FindDoor()
-    local found = nil
-    pcall(function()
-        local stage = Workspace:FindFirstChild("Stage")
-        if not stage then return end
-        for _, map in pairs(stage:GetChildren()) do
-            if string.sub(map.Name, 1, 3) == "map" then
-                local art = map:FindFirstChild("Art")
-                if art then
-                    local door = art:FindFirstChild("door1")
-                    if door then
-                        found = door
-                        print("[Deur] Gevonden:", door:GetFullName())
-                        return
-                    end
-                end
-            end
-        end
-    end)
-    return found
-end
-
-local function WaitForDoorToOpen(maxWait)
-    maxWait    = maxWait or 90
-    local door = FindDoor()
-
-    if not door then
-        print("[Deur] Geen deur aanwezig, direct doorgaan")
-        return
-    end
-
-    print("[Deur] Wachten tot deur verdwijnt (max " .. maxWait .. "s)...")
-    local deadline = tick() + maxWait
-    local elapsed  = 0
-
-    while tick() < deadline do
+local function WaitForDoor()
+    local wait = S.DoorWait or 12
+    Log("Deur", "Wachten " .. wait .. "s voor deur opent...")
+    for i = wait, 1, -1 do
         if not S.Running then return end
-
-        local doorGone = false
-        pcall(function()
-            doorGone = door.Parent == nil
-        end)
-
-        if doorGone then
-            print("[Deur] Deur verdwenen, doorgaan!")
-            UpdateStatus("Deur open!")
-            task.wait(0.5)
-            return
-        end
-
-        elapsed += 0.5
-        UpdateStatus("Wachten op deur... (" .. math.floor(elapsed) .. "s)")
-        task.wait(0.5)
+        UpdateStatus("Deur opent in " .. i .. "s...")
+        task.wait(1)
     end
-
-    warn("[Deur] Timeout " .. maxWait .. "s, toch doorgaan")
-    UpdateStatus("Deur timeout, doorgaan")
+    Log("Deur", "Timer klaar, doorgaan")
 end
 
 -- ==============================================================================
@@ -321,36 +323,50 @@ local function FindAgainButton()
 end
 
 local function TryCreateParty()
+    Log("Party", "Wachten op party menu...")
     UpdateStatus("Wachten op party menu...")
     local deadline = tick() + 15
     while tick() < deadline do
         if not S.Running then return false end
-        if IsPartyDifficultyWindowOpen() then break end
+        if IsPartyDifficultyWindowOpen() then
+            Log("Party", "Menu open!")
+            break
+        end
         task.wait(0.2)
     end
     if not IsPartyDifficultyWindowOpen() then
+        Warn("Party", "Menu niet verschenen na 15s")
         UpdateStatus("Party menu niet verschenen")
         return false
     end
 
+    Log("Party", "Difficulty selecteren: " .. S.Difficulty)
     UpdateStatus("Difficulty: " .. S.Difficulty)
     local d_deadline = tick() + 10
     while tick() < d_deadline do
         local btn = FindPartyDifficultyButton(S.Difficulty)
-        if btn and ClickGuiObject(btn) then break end
+        if btn and ClickGuiObject(btn) then
+            Log("Party", "Difficulty geklikt")
+            break
+        end
         task.wait(0.1)
     end
     task.wait(0.4)
 
+    Log("Party", "Lobby aanmaken...")
     UpdateStatus("Lobby aanmaken...")
     local c_deadline = tick() + 10
     while tick() < c_deadline do
         local btn = FindPartyCreateButton()
-        if btn and ClickGuiObject(btn) then break end
+        if btn and ClickGuiObject(btn) then
+            Log("Party", "CreateBtn geklikt")
+            break
+        end
         task.wait(0.1)
     end
     task.wait(1)
 
+    Log("Party", "Wachten op StartBtn...")
     UpdateStatus("Wachten op StartBtn...")
     local s_deadline = tick() + 20
     while tick() < s_deadline do
@@ -360,8 +376,8 @@ local function TryCreateParty()
             ClickGuiObject(btn)
             task.wait(1.5)
             if not FindPartyStartButton() then
-                -- Sla op dat we naar DUNGEON gaan VOOR de teleport
-                S.Phase = "DUNGEON"
+                S.Phase = "DUNGEON" -- bewaren VOOR teleport
+                Log("Party", "StartBtn geklikt, teleporteren (Phase=DUNGEON bewaard)")
                 UpdateStatus("Party gestart! Teleporteren...")
                 return true
             end
@@ -369,6 +385,7 @@ local function TryCreateParty()
         task.wait(0.5)
     end
 
+    Warn("Party", "StartBtn timeout na 20s")
     UpdateStatus("StartBtn timeout")
     return false
 end
@@ -388,8 +405,8 @@ end
 local function FindClosestEnemy()
     local _, _, root = GetCharParts()
     if not root then return nil end
-    local myPos               = root.Position
-    local closest, minDist    = nil, S.AttackRange
+    local myPos            = root.Position
+    local closest, minDist = nil, S.AttackRange
 
     pcall(function()
         local stage = Workspace:FindFirstChild("Stage")
@@ -437,16 +454,17 @@ local function AttackTarget(target)
 end
 
 -- ==============================================================================
--- LOPEN MET COMBAT
+-- LOPEN MET COMBAT + live enemy counter
 -- ==============================================================================
 local function WalkToWithCombat(targetPos)
     local char, hum, root = GetCharParts()
     if not char or not hum or not root then return end
 
     hum:MoveTo(targetPos)
-    local stuckTimer = 0
-    local lastPos    = root.Position
-    local timeout    = tick() + 300
+    local stuckTimer    = 0
+    local lastPos       = root.Position
+    local timeout       = tick() + 300
+    local lastEnemyLog  = tick()
 
     while tick() < timeout do
         if not S.Running then
@@ -459,11 +477,23 @@ local function WalkToWithCombat(targetPos)
 
         if (root.Position - targetPos).Magnitude <= 4 then break end
 
+        -- Live enemy counter updaten (elke 2s om spam te voorkomen)
+        if tick() - lastEnemyLog > 2 then
+            local alive, total = CountEnemies()
+            UpdateEnemyLabel(alive, total)
+            if total > 0 then
+                Log("Combat", "Enemies: " .. alive .. "/" .. total .. " levend")
+            end
+            lastEnemyLog = tick()
+        end
+
         if S.AutoAttack then
             local enemy = FindClosestEnemy()
             if enemy then
                 pcall(function() hum:MoveTo(root.Position) end)
                 local combatTimeout = tick() + 15
+                local enemyName     = pcall(function() return enemy.Name end) and enemy.Name or "?"
+                Log("Combat", "Aanvallen: " .. tostring(enemyName))
                 repeat
                     if not S.Running then return end
                     char, hum, root = GetCharParts()
@@ -479,6 +509,10 @@ local function WalkToWithCombat(targetPos)
                     or not enemy or not enemy.Parent
                     or not enemy:FindFirstChild("Humanoid")
                     or enemy.Humanoid.Health <= 0
+
+                if enemy and enemy.Parent and enemy:FindFirstChild("Humanoid") and enemy.Humanoid.Health <= 0 then
+                    Log("Combat", tostring(enemyName) .. " dood")
+                end
                 pcall(function() hum:MoveTo(targetPos) end)
             end
         end
@@ -488,6 +522,7 @@ local function WalkToWithCombat(targetPos)
             if (root.Position - lastPos).Magnitude < 0.5 then
                 stuckTimer += 1
                 if stuckTimer > 20 then
+                    Log("Move", "Vastgelopen, springen")
                     pcall(function() hum.Jump = true end)
                     stuckTimer = 0
                 end
@@ -499,63 +534,79 @@ local function WalkToWithCombat(targetPos)
 
         task.wait(0.1)
     end
+
+    local alive, total = CountEnemies()
+    Log("Combat", "Route klaar | Enemies over: " .. alive .. "/" .. total)
+    UpdateEnemyLabel(alive, total)
 end
 
 -- ==============================================================================
 -- FASE: DUNGEON
--- Wordt aangeroepen na elke teleport naar dungeon
 -- ==============================================================================
 local function RunDungeonPhase()
-    S.Phase = "DUNGEON" -- bewaar fase voor als script opnieuw laadt
+    S.Phase = "DUNGEON"
+    UpdatePhaseLabel("DUNGEON")
+    Log("Dungeon", "=== Run " .. S.CurrentRun .. " gestart ===")
 
-    -- 1. Wacht tot wereld en loading screen klaar zijn
+    -- 1. Wereld laden
     WaitForWorldLoad(15)
     if not S.Running then return end
 
+    -- 2. Loading screen
     WaitForLoadingGui(30)
     if not S.Running then return end
 
-    -- 2. Wacht tot deur verdwijnt
-    WaitForDoorToOpen(90)
+    -- 3. Vaste timer voor deur
+    WaitForDoor()
     if not S.Running then return end
 
-    -- 3. Loop naar einde dungeon
-    UpdateStatus("Run " .. S.CurrentRun .. " | Lopen...")
+    -- 4. Enemy count bij start
+    local alive, total = CountEnemies()
+    Log("Dungeon", "Enemies bij start: " .. alive .. "/" .. total)
+    UpdateEnemyLabel(alive, total)
+
+    -- 5. Loop dungeon
+    UpdateStatus("Run " .. S.CurrentRun .. " | Lopen + killen...")
     WalkToWithCombat(DungeonEnd)
     if not S.Running then return end
 
-    -- 4. Run tellen
+    -- 6. Run afronden
     S.CurrentRun += 1
     UpdateRuns(S.CurrentRun, S.MaxRuns)
-    print("[Dungeon] Run " .. S.CurrentRun .. " klaar")
+    local aliveEnd, totalEnd = CountEnemies()
+    Log("Dungeon", "=== Run " .. S.CurrentRun .. " klaar | Enemies over: " .. aliveEnd .. "/" .. totalEnd .. " ===")
 
     if S.MaxRuns > 0 and S.CurrentRun > S.MaxRuns then
         UpdateStatus("Klaar! " .. S.MaxRuns .. " runs gedaan")
+        Log("Dungeon", "Max runs bereikt, stoppen")
         S.Running = false
         S.Phase   = "IDLE"
+        UpdatePhaseLabel("IDLE")
+        UpdateEnemyLabel(nil, nil)
         return
     end
 
-    -- 5. Opnieuw knop (teleporteert terug naar dungeon)
-    UpdateStatus("Wachten op Opnieuw knop...")
+    -- 7. Opnieuw knop
+    UpdateStatus("Wachten op Opnieuw...")
+    Log("Dungeon", "Wachten op Opnieuw knop...")
     local deadline = tick() + 25
     while tick() < deadline do
         if not S.Running then return end
         local btn = FindAgainButton()
         if btn and ClickGuiObject(btn) then
-            -- BELANGRIJK: phase bewaren VOOR teleport
-            S.Phase = "DUNGEON"
+            S.Phase = "DUNGEON" -- bewaren VOOR teleport
+            Log("Dungeon", "Opnieuw geklikt, Phase=DUNGEON bewaard voor teleport")
             UpdateStatus("Opnieuw! Teleporteren...")
-            print("[Dungeon] Opnieuw geklikt, phase=DUNGEON bewaard")
             return
         end
         task.wait(0.5)
     end
 
-    warn("[Again] Timeout")
+    Warn("Dungeon", "Opnieuw knop niet gevonden na 25s")
     UpdateStatus("Opnieuw knop niet gevonden")
     S.Running = false
     S.Phase   = "IDLE"
+    UpdatePhaseLabel("IDLE")
 end
 
 -- ==============================================================================
@@ -563,6 +614,8 @@ end
 -- ==============================================================================
 local function RunLobbyPhase()
     S.Phase = "LOBBY"
+    UpdatePhaseLabel("LOBBY")
+    Log("Lobby", "Start lobby fase")
 
     WaitForWorldLoad(15)
     if not S.Running then return end
@@ -570,14 +623,16 @@ local function RunLobbyPhase()
     UpdateStatus("Lobby route lopen...")
     local _, hum, _ = GetCharParts()
     if not hum then
+        Warn("Lobby", "Karakter niet gevonden")
         UpdateStatus("Karakter niet gevonden")
         S.Running = false
         return
     end
 
-    for _, step in ipairs(LobbyRoute) do
+    for i, step in ipairs(LobbyRoute) do
         if not S.Running then return end
         if step.Type == "Walk" then
+            Log("Lobby", "Stap " .. i .. " naar " .. tostring(step.Pos))
             pcall(function()
                 hum:MoveTo(step.Pos)
                 local t    = tick()
@@ -593,38 +648,44 @@ local function RunLobbyPhase()
     if not S.Running then return end
 
     S.Phase = "PARTY"
+    UpdatePhaseLabel("PARTY")
+    Log("Lobby", "Route klaar, party aanmaken")
     UpdateStatus("Party aanmaken...")
     local ok9 = TryCreateParty()
-    -- TryCreateParty zet S.Phase = "DUNGEON" al voor teleport
     if not ok9 then
+        Warn("Lobby", "Party aanmaken mislukt")
         UpdateStatus("Party mislukt, gestopt")
         S.Running = false
         S.Phase   = "IDLE"
+        UpdatePhaseLabel("IDLE")
     end
 end
 
 -- ==============================================================================
--- AUTOSTART — bepaalt op basis van _G state wat er moet gebeuren
+-- AUTOSTART
 -- ==============================================================================
 local function AutoStart()
     if not S.Running then return end
     UpdateRuns(S.CurrentRun, S.MaxRuns)
+    UpdateEnemyLabel(nil, nil)
 
     -- Wacht op karakter
     UpdateStatus("Wachten op karakter...")
     local t = tick()
     repeat task.wait(0.3) until GetCharParts() or tick() - t > 15
 
-    -- Wacht tot wereld geladen is
+    -- Wereld laden
     WaitForWorldLoad(15)
 
-    print("[AutoStart] Phase=" .. S.Phase .. " InDungeon=" .. tostring(IsInDungeon()))
+    local inDungeon = IsInDungeon()
+    Log("AutoStart", "Phase=" .. S.Phase .. " | IsInDungeon=" .. tostring(inDungeon))
 
-    -- Keuze op basis van opgeslagen phase + werkelijke locatie
-    if S.Phase == "DUNGEON" or IsInDungeon() then
+    if S.Phase == "DUNGEON" or inDungeon then
+        UpdatePhaseLabel("DUNGEON")
         UpdateStatus("Dungeon! Run " .. S.CurrentRun)
         RunDungeonPhase()
     else
+        UpdatePhaseLabel("LOBBY")
         UpdateStatus("Lobby, starten...")
         RunLobbyPhase()
     end
@@ -635,18 +696,24 @@ end
 -- ==============================================================================
 Section:NewDropdown("Moeilijkheid", "Easy / Normal / Hard", {"Easy","Normal","Hard"}, function(val)
     S.Difficulty = val
-    print("[Config] Difficulty:", val)
+    Log("Config", "Difficulty = " .. val)
 end)
 
 Section:NewDropdown("Aantal Runs", "Hoeveel runs", {"1","2","3","5","10","25","50","Oneindig"}, function(val)
     S.MaxRuns    = val == "Oneindig" and 0 or tonumber(val)
     S.CurrentRun = 0
     UpdateRuns(0, S.MaxRuns)
-    print("[Config] Runs:", val)
+    Log("Config", "MaxRuns = " .. tostring(S.MaxRuns))
+end)
+
+Section:NewDropdown("Deur Timer (s)", "Seconden wachten op deur", {"8","10","12","15","20"}, function(val)
+    S.DoorWait = tonumber(val)
+    Log("Config", "DoorWait = " .. val .. "s")
 end)
 
 Section:NewToggle("Auto Attack", "Aan/Uit", true, function(state)
     S.AutoAttack = state
+    Log("Config", "AutoAttack = " .. tostring(state))
 end)
 
 ControlSection:NewButton("START", "Start de volledige loop", function()
@@ -655,33 +722,41 @@ ControlSection:NewButton("START", "Start de volledige loop", function()
     S.CurrentRun = 0
     S.Phase      = "LOBBY"
     UpdateRuns(0, S.MaxRuns)
+    UpdateEnemyLabel(nil, nil)
+    Log("Control", "START gedrukt")
     task.spawn(AutoStart)
 end)
 
 ControlSection:NewButton("STOP", "Stopt alles direct", function()
     S.Running = false
     S.Phase   = "IDLE"
+    UpdatePhaseLabel("IDLE")
+    UpdateEnemyLabel(nil, nil)
     pcall(function()
         local _, hum, root = GetCharParts()
         if hum and root then hum:MoveTo(root.Position) end
     end)
+    Log("Control", "STOP gedrukt")
     UpdateStatus("Gestopt")
 end)
 
 ControlSection:NewButton("Party Aanmaken", "Handmatig party starten", function()
-    if not S.Running then task.spawn(TryCreateParty) end
+    if not S.Running then
+        Log("Control", "Handmatige party start")
+        task.spawn(TryCreateParty)
+    end
 end)
 
 -- ==============================================================================
--- BOOT — na elke (her)laad bepaalt _G.PeakEvo.Phase wat er gebeurt
+-- BOOT
 -- ==============================================================================
 UpdateStatus("Idle - Druk op START")
 UpdateRuns(S.CurrentRun, S.MaxRuns)
+UpdatePhaseLabel(S.Phase)
 
 if S.Running then
-    -- Script herladen na teleport, hervat automatisch
-    print("[Boot] Hervatten - Phase=" .. S.Phase)
+    Log("Boot", "Script herladen na teleport, hervat (Phase=" .. S.Phase .. ")")
     task.spawn(AutoStart)
 else
-    print("[Boot] Fresh start, wacht op START knop")
+    Log("Boot", "Fresh start, wacht op START knop")
 end
