@@ -730,9 +730,34 @@ end)
 US("Idle") UR() UP(S.Phase) UK() UL(nil)
 if S.BestTime then UB(S.BestTime) end
 
-if S.Running then
-    Log("Boot","Hervatten (Phase="..S.Phase..")")
-    task.spawn(AutoStart)
-else
-    US("Idle - Druk op START") Log("Boot","Fresh start")
-end
+-- Direct opstarten als we al in dungeon zijn, ongeacht state
+task.spawn(function()
+    task.wait(2) -- wacht even tot wereld laadt
+    local inDungeon = IsInDungeon()
+    
+    -- Extra wacht als nog niet gedetecteerd
+    if not inDungeon then
+        local dl = tick() + 10
+        while tick() < dl do
+            task.wait(0.5)
+            inDungeon = IsInDungeon()
+            if inDungeon then break end
+        end
+    end
+
+    if inDungeon then
+        Log("Boot","Dungeon gedetecteerd bij boot, automatisch hervatten")
+        S.Running = true
+        SaveState(S)
+        UP("DUNGEON")
+        UR() UK() UE(nil,nil) UL(nil)
+        US("Dungeon gedetecteerd! Hervatten...")
+        RunDungeonPhase()
+    elseif S.Running then
+        Log("Boot","Hervatten (Phase="..S.Phase..")")
+        task.spawn(AutoStart)
+    else
+        US("Idle - Druk op START")
+        Log("Boot","Fresh start")
+    end
+end)
