@@ -1,6 +1,6 @@
 -- ============================================================
 -- Peak Evo - RB1000 | Stable Build voor Velocity
--- v1.4 - 12s deur timer + enemy counter + betere logging
+-- v1.5 - Compacte GUI + run time logging
 -- ============================================================
 
 local ok, Library = pcall(function()
@@ -11,7 +11,7 @@ if not ok or not Library then
     return
 end
 
-local Window = Library.CreateLib("Peak Evo - RB1000 (Stable)", "DarkTheme")
+local Window = Library.CreateLib("Peak Evo - RB1000", "DarkTheme")
 
 -- ==============================================================================
 -- SERVICES
@@ -32,14 +32,12 @@ if not LocalPlayer then warn("[PeakEvo] FATAL: Geen LocalPlayer!") return end
 
 -- ==============================================================================
 -- LOGGING
--- Prefix geeft aan uit welke module het komt
 -- ==============================================================================
-local LOG_PREFIX = "[PeakEvo]"
 local function Log(module, msg)
-    print(LOG_PREFIX .. "[" .. module .. "] " .. tostring(msg))
+    print("[PeakEvo][" .. module .. "] " .. tostring(msg))
 end
 local function Warn(module, msg)
-    warn(LOG_PREFIX .. "[" .. module .. "] " .. tostring(msg))
+    warn("[PeakEvo][" .. module .. "] " .. tostring(msg))
 end
 
 -- ==============================================================================
@@ -56,7 +54,7 @@ pcall(function()
 end)
 
 -- ==============================================================================
--- STATE — _G overleeft elke teleport
+-- STATE
 -- ==============================================================================
 if type(_G.PeakEvo) ~= "table" then
     _G.PeakEvo = {
@@ -67,53 +65,147 @@ if type(_G.PeakEvo) ~= "table" then
         MaxRuns      = 0,
         CurrentRun   = 0,
         Phase        = "IDLE",
-        DoorWait     = 12, -- seconden wachten op deur
+        DoorWait     = 12,
+        TotalKills   = 0,
+        BestTime     = nil,   -- snelste run in seconden
+        RunStartTime = 0,
     }
 end
 local S = _G.PeakEvo
-Log("Boot", "State geladen | Running=" .. tostring(S.Running) .. " Phase=" .. S.Phase .. " Run=" .. S.CurrentRun)
+Log("Boot", "Running=" .. tostring(S.Running) .. " Phase=" .. S.Phase .. " Run=" .. S.CurrentRun)
 
 -- ==============================================================================
--- GUI SETUP
+-- GUI — alles in 1 tab, 2 compacte secties
+-- Sectie 1: Config (instellingen)
+-- Sectie 2: Live (status + stats samen)
 -- ==============================================================================
-local MainTab        = Window:NewTab("Main")
-local Section        = MainTab:NewSection("Instellingen")
-local ControlSection = MainTab:NewSection("Controls")
-local StatsSection   = MainTab:NewSection("Live Stats")
+local MainTab     = Window:NewTab("Main")
+local CfgSection  = MainTab:NewSection("Config")
+local LiveSection = MainTab:NewSection("Live")
 
-local StatusLabel    = Section:NewLabel("Status: Idle")
-local RunsLabel      = StatsSection:NewLabel("Runs: 0 / 0")
-local EnemyLabel     = StatsSection:NewLabel("Enemies: -")
-local PhaseLabel     = StatsSection:NewLabel("Fase: IDLE")
+-- Config
+CfgSection:NewDropdown("Difficulty", "Easy / Normal / Hard", {"Easy","Normal","Hard"}, function(val)
+    S.Difficulty = val
+    Log("Config", "Difficulty=" .. val)
+end)
 
+CfgSection:NewDropdown("Runs", "Aantal runs", {"1","2","3","5","10","25","50","Oneindig"}, function(val)
+    S.MaxRuns    = val == "Oneindig" and 0 or tonumber(val)
+    S.CurrentRun = 0
+    Log("Config", "MaxRuns=" .. tostring(S.MaxRuns))
+end)
+
+CfgSection:NewDropdown("Deur (s)", "Wacht op deur", {"8","10","12","15","20"}, function(val)
+    S.DoorWait = tonumber(val)
+    Log("Config", "DoorWait=" .. val .. "s")
+end)
+
+CfgSection:NewToggle("Auto Attack", "Aan/Uit", true, function(state)
+    S.AutoAttack = state
+    Log("Config", "AutoAttack=" .. tostring(state))
+end)
+
+-- Live labels (compact, alles zichtbaar zonder scrollen)
+local LblStatus  = LiveSection:NewLabel("Status   : Idle")
+local LblPhase   = LiveSection:NewLabel("Fase     : IDLE")
+local LblRuns    = LiveSection:NewLabel("Runs     : 0 / 0")
+local LblEnemy   = LiveSection:NewLabel("Enemies  : -")
+local LblTime    = LiveSection:NewLabel("Tijd     : -")
+local LblBest    = LiveSection:NewLabel("Best     : -")
+local LblKills   = LiveSection:NewLabel("Kills    : 0")
+
+-- Knoppen direct onder de labels
+LiveSection:NewButton("START", "Start loop", function()
+    if S.Running then
+        pcall(function() LblStatus:UpdateLabel("Status   : Al bezig!") end)
+        return
+    end
+    S.Running    = true
+    S.CurrentRun = 0
+    S.TotalKills = 0
+    S.Phase      = "LOBBY"
+    pcall(function()
+        LblRuns:UpdateLabel("Runs     : 0 / " .. (S.MaxRuns == 0 and "inf" or S.MaxRuns))
+        LblKills:UpdateLabel("Kills    : 0")
+        LblEnemy:UpdateLabel("Enemies  : -")
+        LblTime:UpdateLabel("Tijd     : -")
+    end)
+    Log("Control", "START")
+    task.spawn(function() _G._PeakEvoAutoStart() end)
+end)
+
+LiveSection:NewButton("STOP", "Stop direct", function()
+    S.Running = false
+    S.Phase   = "IDLE"
+    pcall(function()
+        LblStatus:UpdateLabel("Status   : Gestopt")
+        LblPhase:UpdateLabel("Fase     : IDLE")
+        LblEnemy:UpdateLabel("Enemies  : -")
+        local _, hum, root = unpack({(function()
+            local char = LocalPlayer.Character
+            if not char then return nil, nil, nil end
+            return char, char:FindFirstChild("Humanoid"), char:FindFirstChild("HumanoidRootPart")
+        end)()})
+        if hum and root then hum:MoveTo(root.Position) end
+    end)
+    Log("Control", "STOP")
+end)
+
+LiveSection:NewButton("Party Aanmaken", "Handmatig", function()
+    if not S.Running then
+        Log("Control", "Handmatige party")
+        task.spawn(function() _G._PeakEvoParty() end)
+    end
+end)
+
+-- ==============================================================================
+-- UPDATE HELPERS
+-- ==============================================================================
 local function UpdateStatus(text)
-    pcall(function() StatusLabel:UpdateLabel("Status: " .. tostring(text)) end)
+    pcall(function() LblStatus:UpdateLabel("Status   : " .. tostring(text)) end)
     Log("Status", text)
 end
 
-local function UpdateRuns(current, max)
+local function UpdatePhase(phase)
+    S.Phase = phase
+    pcall(function() LblPhase:UpdateLabel("Fase     : " .. tostring(phase)) end)
+end
+
+local function UpdateRuns()
     pcall(function()
-        local suffix = (max == 0) and " / inf" or (" / " .. max)
-        RunsLabel:UpdateLabel("Runs: " .. current .. suffix)
+        local suffix = S.MaxRuns == 0 and "inf" or tostring(S.MaxRuns)
+        LblRuns:UpdateLabel("Runs     : " .. S.CurrentRun .. " / " .. suffix)
     end)
 end
 
-local function UpdatePhaseLabel(phase)
-    pcall(function() PhaseLabel:UpdateLabel("Fase: " .. tostring(phase)) end)
-end
-
-local function UpdateEnemyLabel(alive, total)
+local function UpdateEnemy(alive, total)
     pcall(function()
         if alive == nil then
-            EnemyLabel:UpdateLabel("Enemies: -")
+            LblEnemy:UpdateLabel("Enemies  : -")
         else
-            EnemyLabel:UpdateLabel("Enemies: " .. alive .. " / " .. total .. " over")
+            LblEnemy:UpdateLabel("Enemies  : " .. alive .. " / " .. total)
         end
     end)
 end
 
+local function UpdateKills()
+    pcall(function() LblKills:UpdateLabel("Kills    : " .. S.TotalKills) end)
+end
+
+local function UpdateTime(timeStr)
+    pcall(function() LblTime:UpdateLabel("Tijd     : " .. tostring(timeStr)) end)
+end
+
+local function UpdateBest(seconds)
+    if not seconds then return end
+    local mins = math.floor(seconds / 60)
+    local secs = seconds % 60
+    local str  = string.format("%d:%02d", mins, secs)
+    pcall(function() LblBest:UpdateLabel("Best     : " .. str) end)
+end
+
 -- ==============================================================================
--- WERELD LADEN WACHTER
+-- WERELD LADEN
 -- ==============================================================================
 local function WaitForWorldLoad(maxWait)
     maxWait = maxWait or 15
@@ -123,35 +215,28 @@ local function WaitForWorldLoad(maxWait)
             local stage = Workspace:FindFirstChild("Stage")
             return stage ~= nil and #stage:GetChildren() > 0
         end)
-        if ok2 and ready then
-            Log("World", "Stage geladen")
-            task.wait(0.5)
-            return true
-        end
+        if ok2 and ready then Log("World", "Stage geladen") task.wait(0.5) return true end
         task.wait(0.3)
     end
-    Warn("World", "Stage niet gevonden na " .. maxWait .. "s")
+    Warn("World", "Stage timeout " .. maxWait .. "s")
     return false
 end
 
 -- ==============================================================================
--- DETECTIE: IN DUNGEON?
+-- DETECTIE
 -- ==============================================================================
 local function IsInDungeon()
     local ok2, result = pcall(function()
         local stage = Workspace:FindFirstChild("Stage")
         if not stage then return false end
-        if stage:FindFirstChild("baseStage") then
-            Log("Detect", "baseStage gevonden = lobby")
-            return false
-        end
+        if stage:FindFirstChild("baseStage") then Log("Detect", "Lobby (baseStage)") return false end
         for _, child in pairs(stage:GetChildren()) do
             if string.sub(child.Name, 1, 3) == "map" then
-                Log("Detect", "Dungeon map gevonden: " .. child.Name)
+                Log("Detect", "Dungeon: " .. child.Name)
                 return true
             end
         end
-        Log("Detect", "Geen map in Stage = lobby")
+        Log("Detect", "Geen map gevonden")
         return false
     end)
     return ok2 and result or false
@@ -159,11 +244,9 @@ end
 
 -- ==============================================================================
 -- ENEMY COUNTER
--- Telt alle levende enemies in de huidige dungeon map
 -- ==============================================================================
 local function CountEnemies()
-    local alive = 0
-    local total = 0
+    local alive, total = 0, 0
     pcall(function()
         local stage = Workspace:FindFirstChild("Stage")
         if not stage then return end
@@ -176,9 +259,7 @@ local function CountEnemies()
                             local hum = mob:FindFirstChild("Humanoid")
                             if hum then
                                 total += 1
-                                if hum.Health > 0 then
-                                    alive += 1
-                                end
+                                if hum.Health > 0 then alive += 1 end
                             end
                         end)
                     end
@@ -190,7 +271,42 @@ local function CountEnemies()
 end
 
 -- ==============================================================================
--- LOADINGGUI WACHTER
+-- RUN TIME UITLEZEN
+-- PartyOverGui > Frame > bg > time (TextLabel)
+-- ==============================================================================
+local function GetRunTime()
+    local timeStr = nil
+    pcall(function()
+        local pg    = LocalPlayer:FindFirstChild("PlayerGui")
+        local pog   = pg and pg:FindFirstChild("PartyOverGui")
+        local frame = pog and pog:FindFirstChild("Frame")
+        local bg    = frame and frame:FindFirstChild("bg")
+        local lbl   = bg and bg:FindFirstChild("time")
+        if lbl and lbl.Text and lbl.Text ~= "" then
+            timeStr = lbl.Text
+        end
+    end)
+    return timeStr
+end
+
+-- Probeert run tijd te parsen naar seconden voor best-time tracking
+local function ParseTimeToSeconds(timeStr)
+    if not timeStr then return nil end
+    -- Formaten: "1:23", "0:45", "2:03:10" etc.
+    local parts = {}
+    for part in timeStr:gmatch("%d+") do
+        table.insert(parts, tonumber(part))
+    end
+    if #parts == 2 then
+        return parts[1] * 60 + parts[2]
+    elseif #parts == 3 then
+        return parts[1] * 3600 + parts[2] * 60 + parts[3]
+    end
+    return nil
+end
+
+-- ==============================================================================
+-- LOADING GUI WACHTER
 -- ==============================================================================
 local function WaitForLoadingGui(maxWait)
     maxWait = maxWait or 30
@@ -207,26 +323,26 @@ local function WaitForLoadingGui(maxWait)
             UpdateStatus("Loading screen...")
             task.wait(0.3)
         else
-            Log("Loading", "LoadingGui weg, doorgaan")
+            Log("Loading", "Klaar")
             task.wait(0.2)
             return
         end
     end
-    Warn("Loading", "Timeout 30s, toch doorgaan")
+    Warn("Loading", "Timeout 30s")
 end
 
 -- ==============================================================================
--- DEUR WACHTER — simpele vaste timer
+-- DEUR TIMER
 -- ==============================================================================
 local function WaitForDoor()
     local wait = S.DoorWait or 12
-    Log("Deur", "Wachten " .. wait .. "s voor deur opent...")
+    Log("Deur", "Wachten " .. wait .. "s...")
     for i = wait, 1, -1 do
         if not S.Running then return end
         UpdateStatus("Deur opent in " .. i .. "s...")
         task.wait(1)
     end
-    Log("Deur", "Timer klaar, doorgaan")
+    Log("Deur", "Klaar")
 end
 
 -- ==============================================================================
@@ -252,14 +368,10 @@ local function ClickGuiObject(guiObject)
         local cy = guiObject.AbsolutePosition.Y + (guiObject.AbsoluteSize.Y / 2)
         pcall(function() guiObject:Activate() end)
         pcall(function()
-            for _, conn in pairs(getconnections(guiObject.MouseButton1Click)) do
-                pcall(function() conn:Fire() end)
-            end
+            for _, conn in pairs(getconnections(guiObject.MouseButton1Click)) do pcall(function() conn:Fire() end) end
         end)
         pcall(function()
-            for _, conn in pairs(getconnections(guiObject.Activated)) do
-                pcall(function() conn:Fire() end)
-            end
+            for _, conn in pairs(getconnections(guiObject.Activated)) do pcall(function() conn:Fire() end) end
         end)
         VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, true,  game, 0)
         VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, false, game, 0)
@@ -292,7 +404,7 @@ local function FindPartyDifficultyButton(difficulty)
     return nil
 end
 
-local function IsPartyDifficultyWindowOpen()
+local function IsPartyWindowOpen()
     return FindPartyDifficultyButton("Easy")
         or FindPartyDifficultyButton("Normal")
         or FindPartyDifficultyButton("Hard")
@@ -323,75 +435,62 @@ local function FindAgainButton()
 end
 
 local function TryCreateParty()
-    Log("Party", "Wachten op party menu...")
     UpdateStatus("Wachten op party menu...")
     local deadline = tick() + 15
     while tick() < deadline do
         if not S.Running then return false end
-        if IsPartyDifficultyWindowOpen() then
-            Log("Party", "Menu open!")
-            break
-        end
+        if IsPartyWindowOpen() then Log("Party", "Menu open") break end
         task.wait(0.2)
     end
-    if not IsPartyDifficultyWindowOpen() then
-        Warn("Party", "Menu niet verschenen na 15s")
+    if not IsPartyWindowOpen() then
+        Warn("Party", "Menu timeout 15s")
         UpdateStatus("Party menu niet verschenen")
         return false
     end
 
-    Log("Party", "Difficulty selecteren: " .. S.Difficulty)
     UpdateStatus("Difficulty: " .. S.Difficulty)
-    local d_deadline = tick() + 10
-    while tick() < d_deadline do
+    local d = tick() + 10
+    while tick() < d do
         local btn = FindPartyDifficultyButton(S.Difficulty)
-        if btn and ClickGuiObject(btn) then
-            Log("Party", "Difficulty geklikt")
-            break
-        end
+        if btn and ClickGuiObject(btn) then Log("Party", "Difficulty OK") break end
         task.wait(0.1)
     end
     task.wait(0.4)
 
-    Log("Party", "Lobby aanmaken...")
     UpdateStatus("Lobby aanmaken...")
-    local c_deadline = tick() + 10
-    while tick() < c_deadline do
+    local c = tick() + 10
+    while tick() < c do
         local btn = FindPartyCreateButton()
-        if btn and ClickGuiObject(btn) then
-            Log("Party", "CreateBtn geklikt")
-            break
-        end
+        if btn and ClickGuiObject(btn) then Log("Party", "Create OK") break end
         task.wait(0.1)
     end
     task.wait(1)
 
-    Log("Party", "Wachten op StartBtn...")
-    UpdateStatus("Wachten op StartBtn...")
-    local s_deadline = tick() + 20
-    while tick() < s_deadline do
+    UpdateStatus("Wachten op Start...")
+    local st = tick() + 20
+    while tick() < st do
         if not S.Running then return false end
         local btn = FindPartyStartButton()
         if btn then
             ClickGuiObject(btn)
             task.wait(1.5)
             if not FindPartyStartButton() then
-                S.Phase = "DUNGEON" -- bewaren VOOR teleport
-                Log("Party", "StartBtn geklikt, teleporteren (Phase=DUNGEON bewaard)")
-                UpdateStatus("Party gestart! Teleporteren...")
+                UpdatePhase("DUNGEON") -- bewaar VOOR teleport
+                Log("Party", "Start OK, Phase=DUNGEON bewaard")
+                UpdateStatus("Teleporteren...")
                 return true
             end
         end
         task.wait(0.5)
     end
 
-    Warn("Party", "StartBtn timeout na 20s")
+    Warn("Party", "StartBtn timeout 20s")
     UpdateStatus("StartBtn timeout")
     return false
 end
 
 -- ==============================================================================
--- KARAKTER HELPERS
+-- KARAKTER
 -- ==============================================================================
 local function GetCharParts()
     local char = LocalPlayer.Character
@@ -405,9 +504,8 @@ end
 local function FindClosestEnemy()
     local _, _, root = GetCharParts()
     if not root then return nil end
-    local myPos            = root.Position
+    local myPos = root.Position
     local closest, minDist = nil, S.AttackRange
-
     pcall(function()
         local stage = Workspace:FindFirstChild("Stage")
         if not stage then return end
@@ -417,14 +515,11 @@ local function FindClosestEnemy()
                 if folder then
                     for _, mob in pairs(folder:GetChildren()) do
                         pcall(function()
-                            local hum2  = mob:FindFirstChild("Humanoid")
-                            local mroot = mob:FindFirstChild("HumanoidRootPart")
-                            if hum2 and mroot and hum2.Health > 0 then
-                                local dist = (mroot.Position - myPos).Magnitude
-                                if dist < minDist then
-                                    minDist = dist
-                                    closest = mob
-                                end
+                            local h = mob:FindFirstChild("Humanoid")
+                            local r = mob:FindFirstChild("HumanoidRootPart")
+                            if h and r and h.Health > 0 then
+                                local d = (r.Position - myPos).Magnitude
+                                if d < minDist then minDist = d closest = mob end
                             end
                         end)
                     end
@@ -441,48 +536,50 @@ local function AttackTarget(target)
         local _, _, root = GetCharParts()
         if not root then return end
         VirtualUser:CaptureController()
-        root.CFrame = CFrame.new(
-            root.Position,
-            Vector3.new(
-                target.HumanoidRootPart.Position.X,
-                root.Position.Y,
-                target.HumanoidRootPart.Position.Z
-            )
-        )
+        root.CFrame = CFrame.new(root.Position, Vector3.new(
+            target.HumanoidRootPart.Position.X,
+            root.Position.Y,
+            target.HumanoidRootPart.Position.Z
+        ))
         VirtualUser:ClickButton1(Vector2.new(900, 500))
     end)
 end
 
 -- ==============================================================================
--- LOPEN MET COMBAT + live enemy counter
+-- LOPEN MET COMBAT
 -- ==============================================================================
 local function WalkToWithCombat(targetPos)
     local char, hum, root = GetCharParts()
     if not char or not hum or not root then return end
 
     hum:MoveTo(targetPos)
-    local stuckTimer    = 0
-    local lastPos       = root.Position
-    local timeout       = tick() + 300
-    local lastEnemyLog  = tick()
+    local stuckTimer   = 0
+    local lastPos      = root.Position
+    local timeout      = tick() + 300
+    local lastEnemyLog = tick()
+    local killsBefore  = 0
+
+    -- Tellen hoeveel er dood zijn aan het begin
+    local _, totalStart = CountEnemies()
 
     while tick() < timeout do
-        if not S.Running then
-            pcall(function() hum:MoveTo(root.Position) end)
-            return
-        end
+        if not S.Running then pcall(function() hum:MoveTo(root.Position) end) return end
 
         char, hum, root = GetCharParts()
         if not char or not hum or not root then task.wait(1) return end
-
         if (root.Position - targetPos).Magnitude <= 4 then break end
 
-        -- Live enemy counter updaten (elke 2s om spam te voorkomen)
+        -- Enemy counter update (elke 2s)
         if tick() - lastEnemyLog > 2 then
             local alive, total = CountEnemies()
-            UpdateEnemyLabel(alive, total)
-            if total > 0 then
-                Log("Combat", "Enemies: " .. alive .. "/" .. total .. " levend")
+            UpdateEnemy(alive, total)
+            -- Kills bijhouden
+            local newKills = (totalStart - alive)
+            if newKills > killsBefore then
+                S.TotalKills = S.TotalKills + (newKills - killsBefore)
+                killsBefore  = newKills
+                UpdateKills()
+                Log("Combat", "Kill! Totaal: " .. S.TotalKills)
             end
             lastEnemyLog = tick()
         end
@@ -491,28 +588,21 @@ local function WalkToWithCombat(targetPos)
             local enemy = FindClosestEnemy()
             if enemy then
                 pcall(function() hum:MoveTo(root.Position) end)
-                local combatTimeout = tick() + 15
-                local enemyName     = pcall(function() return enemy.Name end) and enemy.Name or "?"
-                Log("Combat", "Aanvallen: " .. tostring(enemyName))
+                local combatT   = tick() + 15
+                local eName     = tostring(pcall(function() return enemy.Name end) and enemy.Name or "?")
                 repeat
                     if not S.Running then return end
                     char, hum, root = GetCharParts()
                     if not char then return end
                     AttackTarget(enemy)
                     pcall(function()
-                        if enemy.HumanoidRootPart then
-                            hum:MoveTo(enemy.HumanoidRootPart.Position)
-                        end
+                        if enemy.HumanoidRootPart then hum:MoveTo(enemy.HumanoidRootPart.Position) end
                     end)
                     task.wait(0.1)
-                until tick() > combatTimeout
+                until tick() > combatT
                     or not enemy or not enemy.Parent
                     or not enemy:FindFirstChild("Humanoid")
                     or enemy.Humanoid.Health <= 0
-
-                if enemy and enemy.Parent and enemy:FindFirstChild("Humanoid") and enemy.Humanoid.Health <= 0 then
-                    Log("Combat", tostring(enemyName) .. " dood")
-                end
                 pcall(function() hum:MoveTo(targetPos) end)
             end
         end
@@ -522,100 +612,112 @@ local function WalkToWithCombat(targetPos)
             if (root.Position - lastPos).Magnitude < 0.5 then
                 stuckTimer += 1
                 if stuckTimer > 20 then
-                    Log("Move", "Vastgelopen, springen")
                     pcall(function() hum.Jump = true end)
+                    Log("Move", "Jump (stuck)")
                     stuckTimer = 0
                 end
-            else
-                stuckTimer = 0
-            end
+            else stuckTimer = 0 end
             lastPos = root.Position
         end
-
         task.wait(0.1)
     end
 
     local alive, total = CountEnemies()
-    Log("Combat", "Route klaar | Enemies over: " .. alive .. "/" .. total)
-    UpdateEnemyLabel(alive, total)
+    Log("Combat", "Route klaar | " .. alive .. "/" .. total .. " enemies over")
+    UpdateEnemy(alive, total)
 end
 
 -- ==============================================================================
 -- FASE: DUNGEON
 -- ==============================================================================
 local function RunDungeonPhase()
-    S.Phase = "DUNGEON"
-    UpdatePhaseLabel("DUNGEON")
-    Log("Dungeon", "=== Run " .. S.CurrentRun .. " gestart ===")
+    UpdatePhase("DUNGEON")
+    Log("Dungeon", "=== Run " .. S.CurrentRun .. " start ===")
+    S.RunStartTime = tick()
 
-    -- 1. Wereld laden
     WaitForWorldLoad(15)
     if not S.Running then return end
 
-    -- 2. Loading screen
     WaitForLoadingGui(30)
     if not S.Running then return end
 
-    -- 3. Vaste timer voor deur
     WaitForDoor()
     if not S.Running then return end
 
-    -- 4. Enemy count bij start
     local alive, total = CountEnemies()
     Log("Dungeon", "Enemies bij start: " .. alive .. "/" .. total)
-    UpdateEnemyLabel(alive, total)
+    UpdateEnemy(alive, total)
 
-    -- 5. Loop dungeon
-    UpdateStatus("Run " .. S.CurrentRun .. " | Lopen + killen...")
+    UpdateStatus("Run " .. S.CurrentRun .. " | Lopen...")
     WalkToWithCombat(DungeonEnd)
     if not S.Running then return end
 
-    -- 6. Run afronden
+    -- Run tijd ophalen uit PartyOverGui
+    task.wait(0.5) -- kort wachten zodat GUI verschijnt
+    local runTimeStr = GetRunTime()
+    local runTimeSec = ParseTimeToSeconds(runTimeStr)
+
+    if runTimeStr then
+        UpdateTime(runTimeStr)
+        Log("Dungeon", "Run tijd: " .. runTimeStr)
+        -- Best time bijhouden
+        if runTimeSec and (S.BestTime == nil or runTimeSec < S.BestTime) then
+            S.BestTime = runTimeSec
+            UpdateBest(S.BestTime)
+            Log("Dungeon", "Nieuwe beste tijd: " .. runTimeStr)
+        end
+    else
+        -- Fallback: zelf berekenen
+        local elapsed = math.floor(tick() - S.RunStartTime)
+        local mins    = math.floor(elapsed / 60)
+        local secs    = elapsed % 60
+        runTimeStr    = string.format("%d:%02d", mins, secs)
+        UpdateTime(runTimeStr)
+        Log("Dungeon", "Run tijd (zelf berekend): " .. runTimeStr)
+    end
+
     S.CurrentRun += 1
-    UpdateRuns(S.CurrentRun, S.MaxRuns)
-    local aliveEnd, totalEnd = CountEnemies()
-    Log("Dungeon", "=== Run " .. S.CurrentRun .. " klaar | Enemies over: " .. aliveEnd .. "/" .. totalEnd .. " ===")
+    UpdateRuns()
+
+    local alive2, total2 = CountEnemies()
+    Log("Dungeon", "=== Run " .. S.CurrentRun .. " klaar | Enemies over: " .. alive2 .. "/" .. total2 .. " | Kills: " .. S.TotalKills .. " ===")
 
     if S.MaxRuns > 0 and S.CurrentRun > S.MaxRuns then
         UpdateStatus("Klaar! " .. S.MaxRuns .. " runs gedaan")
-        Log("Dungeon", "Max runs bereikt, stoppen")
+        Log("Dungeon", "Max runs bereikt")
         S.Running = false
-        S.Phase   = "IDLE"
-        UpdatePhaseLabel("IDLE")
-        UpdateEnemyLabel(nil, nil)
+        UpdatePhase("IDLE")
+        UpdateEnemy(nil, nil)
         return
     end
 
-    -- 7. Opnieuw knop
+    -- Opnieuw
     UpdateStatus("Wachten op Opnieuw...")
-    Log("Dungeon", "Wachten op Opnieuw knop...")
     local deadline = tick() + 25
     while tick() < deadline do
         if not S.Running then return end
         local btn = FindAgainButton()
         if btn and ClickGuiObject(btn) then
-            S.Phase = "DUNGEON" -- bewaren VOOR teleport
-            Log("Dungeon", "Opnieuw geklikt, Phase=DUNGEON bewaard voor teleport")
+            UpdatePhase("DUNGEON") -- bewaar VOOR teleport
+            Log("Dungeon", "Opnieuw geklikt, Phase=DUNGEON bewaard")
             UpdateStatus("Opnieuw! Teleporteren...")
             return
         end
         task.wait(0.5)
     end
 
-    Warn("Dungeon", "Opnieuw knop niet gevonden na 25s")
+    Warn("Dungeon", "Opnieuw knop timeout 25s")
     UpdateStatus("Opnieuw knop niet gevonden")
     S.Running = false
-    S.Phase   = "IDLE"
-    UpdatePhaseLabel("IDLE")
+    UpdatePhase("IDLE")
 end
 
 -- ==============================================================================
 -- FASE: LOBBY
 -- ==============================================================================
 local function RunLobbyPhase()
-    S.Phase = "LOBBY"
-    UpdatePhaseLabel("LOBBY")
-    Log("Lobby", "Start lobby fase")
+    UpdatePhase("LOBBY")
+    Log("Lobby", "Start")
 
     WaitForWorldLoad(15)
     if not S.Running then return end
@@ -623,41 +725,34 @@ local function RunLobbyPhase()
     UpdateStatus("Lobby route lopen...")
     local _, hum, _ = GetCharParts()
     if not hum then
-        Warn("Lobby", "Karakter niet gevonden")
-        UpdateStatus("Karakter niet gevonden")
+        Warn("Lobby", "Geen karakter")
+        UpdateStatus("Geen karakter")
         S.Running = false
         return
     end
 
     for i, step in ipairs(LobbyRoute) do
         if not S.Running then return end
-        if step.Type == "Walk" then
-            Log("Lobby", "Stap " .. i .. " naar " .. tostring(step.Pos))
-            pcall(function()
-                hum:MoveTo(step.Pos)
-                local t    = tick()
-                local done = false
-                local conn = hum.MoveToFinished:Connect(function() done = true end)
-                while not done and tick() - t < 6 do task.wait(0.1) end
-                pcall(function() conn:Disconnect() end)
-            end)
-        end
+        Log("Lobby", "Stap " .. i)
+        pcall(function()
+            hum:MoveTo(step.Pos)
+            local t = tick() local done = false
+            local conn = hum.MoveToFinished:Connect(function() done = true end)
+            while not done and tick() - t < 6 do task.wait(0.1) end
+            pcall(function() conn:Disconnect() end)
+        end)
         task.wait(0.1)
     end
 
     if not S.Running then return end
-
-    S.Phase = "PARTY"
-    UpdatePhaseLabel("PARTY")
-    Log("Lobby", "Route klaar, party aanmaken")
+    UpdatePhase("PARTY")
     UpdateStatus("Party aanmaken...")
     local ok9 = TryCreateParty()
     if not ok9 then
-        Warn("Lobby", "Party aanmaken mislukt")
-        UpdateStatus("Party mislukt, gestopt")
+        Warn("Lobby", "Party mislukt")
+        UpdateStatus("Party mislukt")
         S.Running = false
-        S.Phase   = "IDLE"
-        UpdatePhaseLabel("IDLE")
+        UpdatePhase("IDLE")
     end
 end
 
@@ -666,97 +761,42 @@ end
 -- ==============================================================================
 local function AutoStart()
     if not S.Running then return end
-    UpdateRuns(S.CurrentRun, S.MaxRuns)
-    UpdateEnemyLabel(nil, nil)
+    UpdateRuns()
+    UpdateEnemy(nil, nil)
 
-    -- Wacht op karakter
     UpdateStatus("Wachten op karakter...")
     local t = tick()
     repeat task.wait(0.3) until GetCharParts() or tick() - t > 15
 
-    -- Wereld laden
     WaitForWorldLoad(15)
 
     local inDungeon = IsInDungeon()
-    Log("AutoStart", "Phase=" .. S.Phase .. " | IsInDungeon=" .. tostring(inDungeon))
+    Log("AutoStart", "Phase=" .. S.Phase .. " InDungeon=" .. tostring(inDungeon))
 
     if S.Phase == "DUNGEON" or inDungeon then
-        UpdatePhaseLabel("DUNGEON")
         UpdateStatus("Dungeon! Run " .. S.CurrentRun)
         RunDungeonPhase()
     else
-        UpdatePhaseLabel("LOBBY")
         UpdateStatus("Lobby, starten...")
         RunLobbyPhase()
     end
 end
 
--- ==============================================================================
--- GUI KNOPPEN
--- ==============================================================================
-Section:NewDropdown("Moeilijkheid", "Easy / Normal / Hard", {"Easy","Normal","Hard"}, function(val)
-    S.Difficulty = val
-    Log("Config", "Difficulty = " .. val)
-end)
-
-Section:NewDropdown("Aantal Runs", "Hoeveel runs", {"1","2","3","5","10","25","50","Oneindig"}, function(val)
-    S.MaxRuns    = val == "Oneindig" and 0 or tonumber(val)
-    S.CurrentRun = 0
-    UpdateRuns(0, S.MaxRuns)
-    Log("Config", "MaxRuns = " .. tostring(S.MaxRuns))
-end)
-
-Section:NewDropdown("Deur Timer (s)", "Seconden wachten op deur", {"8","10","12","15","20"}, function(val)
-    S.DoorWait = tonumber(val)
-    Log("Config", "DoorWait = " .. val .. "s")
-end)
-
-Section:NewToggle("Auto Attack", "Aan/Uit", true, function(state)
-    S.AutoAttack = state
-    Log("Config", "AutoAttack = " .. tostring(state))
-end)
-
-ControlSection:NewButton("START", "Start de volledige loop", function()
-    if S.Running then UpdateStatus("Al bezig!") return end
-    S.Running    = true
-    S.CurrentRun = 0
-    S.Phase      = "LOBBY"
-    UpdateRuns(0, S.MaxRuns)
-    UpdateEnemyLabel(nil, nil)
-    Log("Control", "START gedrukt")
-    task.spawn(AutoStart)
-end)
-
-ControlSection:NewButton("STOP", "Stopt alles direct", function()
-    S.Running = false
-    S.Phase   = "IDLE"
-    UpdatePhaseLabel("IDLE")
-    UpdateEnemyLabel(nil, nil)
-    pcall(function()
-        local _, hum, root = GetCharParts()
-        if hum and root then hum:MoveTo(root.Position) end
-    end)
-    Log("Control", "STOP gedrukt")
-    UpdateStatus("Gestopt")
-end)
-
-ControlSection:NewButton("Party Aanmaken", "Handmatig party starten", function()
-    if not S.Running then
-        Log("Control", "Handmatige party start")
-        task.spawn(TryCreateParty)
-    end
-end)
+-- Global refs zodat knoppen ze kunnen aanroepen
+_G._PeakEvoAutoStart = AutoStart
+_G._PeakEvoParty     = TryCreateParty
 
 -- ==============================================================================
 -- BOOT
 -- ==============================================================================
 UpdateStatus("Idle - Druk op START")
-UpdateRuns(S.CurrentRun, S.MaxRuns)
-UpdatePhaseLabel(S.Phase)
+UpdateRuns()
+UpdatePhase(S.Phase)
+UpdateKills()
 
 if S.Running then
-    Log("Boot", "Script herladen na teleport, hervat (Phase=" .. S.Phase .. ")")
+    Log("Boot", "Hervatten na teleport (Phase=" .. S.Phase .. ")")
     task.spawn(AutoStart)
 else
-    Log("Boot", "Fresh start, wacht op START knop")
+    Log("Boot", "Fresh start")
 end
