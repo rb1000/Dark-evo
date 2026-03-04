@@ -71,7 +71,7 @@ do
 end
 
 -- ==============================================================================
--- ANTI-AFK â€” maar 1 connection, nooit dubbel
+-- ANTI-AFK - maar 1 connection, nooit dubbel
 -- ==============================================================================
 if not _G._PeakAFK then
     _G._PeakAFK = LocalPlayer.Idled:Connect(function()
@@ -104,7 +104,7 @@ end
 local S = LoadState()
 SaveState(S)
 
-local function SetPhase(p) S.Phase=p SaveState(S) Log("Phase","â†’ "..p) end
+local function SetPhase(p) S.Phase=p SaveState(S) Log("Phase","-> "..p) end
 
 Log("Boot","Running="..tostring(S.Running).." Phase="..S.Phase.." Run="..S.CurrentRun)
 
@@ -139,7 +139,7 @@ TFix.BackgroundColor3=Color3.fromRGB(26,26,32) TFix.BorderSizePixel=0 TFix.Paren
 
 local TL=Instance.new("TextLabel")
 TL.Size=UDim2.new(1,-12,1,0) TL.Position=UDim2.new(0,12,0,0)
-TL.BackgroundTransparency=1 TL.Text="âš¡ Peak Evo - RB1000"
+TL.BackgroundTransparency=1 TL.Text=">> Peak Evo - RB1000"
 TL.TextColor3=Color3.fromRGB(220,220,255) TL.TextSize=13
 TL.Font=Enum.Font.GothamBold TL.TextXAlignment=Enum.TextXAlignment.Left TL.Parent=TB
 
@@ -174,7 +174,7 @@ local function DD(lbl,opts,def,y,cb)
     vl.Font=Enum.Font.GothamBold vl.TextXAlignment=Enum.TextXAlignment.Left vl.Parent=c
     local al=Instance.new("TextLabel")
     al.Size=UDim2.new(0,18,1,0) al.Position=UDim2.new(1,-20,0,0)
-    al.BackgroundTransparency=1 al.Text="â€º" al.TextColor3=Color3.fromRGB(120,120,160)
+    al.BackgroundTransparency=1 al.Text=">" al.TextColor3=Color3.fromRGB(120,120,160)
     al.TextSize=14 al.Font=Enum.Font.GothamBold al.Parent=c
     local idx=1
     for i,v in ipairs(opts) do if tostring(v)==tostring(def) then idx=i break end end
@@ -266,9 +266,9 @@ local VK=StatBox("Kills", 0,3)
 local VL=StatBox("Timer", 1,3)
 
 Div(278)
-local BtnStart = Btn("â–¶ START", 10,  282, 84, Color3.fromRGB(55,150,80))
-local BtnStop  = Btn("â–  STOP",  108, 282, 84, Color3.fromRGB(170,55,55))
-local BtnParty = Btn("ðŸŽ® Party", 206, 282, 84, Color3.fromRGB(90,70,150))
+local BtnStart = Btn("[START]", 10,  282, 84, Color3.fromRGB(55,150,80))
+local BtnStop  = Btn("[STOP]",  108, 282, 84, Color3.fromRGB(170,55,55))
+local BtnParty = Btn("[Party]", 206, 282, 84, Color3.fromRGB(90,70,150))
 
 local FaseKleur={IDLE=Color3.fromRGB(120,120,140),LOBBY=Color3.fromRGB(100,180,255),PARTY=Color3.fromRGB(255,200,80),DUNGEON=Color3.fromRGB(80,220,120)}
 
