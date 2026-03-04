@@ -25,53 +25,26 @@ local function Warn(m,t) warn("[PeakEvo]["..m.."] "..tostring(t))  end
 --   _G._PeakEvoURL = "https://raw.githubusercontent.com/..."
 --   loadstring(game:HttpGet(_G._PeakEvoURL))()
 -- ==============================================================================
-if not _G._PeakWatcherActive then
-    _G._PeakWatcherActive = true
-    task.spawn(function()
-        print("[PeakEvo][Watcher] Gestart")
-        while task.wait(2) do
-            -- Stop watcher als URL niet ingesteld is
-            local url = _G._PeakEvoURL
-            if not url or url == "" then
-                print("[PeakEvo][Watcher] Geen URL, watcher gestopt")
-                _G._PeakWatcherActive = false
-                return
-            end
-            -- Check of GUI nog bestaat
-            local guiOk = false
-            pcall(function()
-                local lp = game:GetService("Players").LocalPlayer
-                local pg = lp and lp:FindFirstChild("PlayerGui")
-                guiOk = pg and pg:FindFirstChild("PeakEvoGui") ~= nil
-            end)
-            if not guiOk then
-                print("[PeakEvo][Watcher] GUI weg, wacht op karakter...")
-                -- Wacht op LocalPlayer + Character (max 30s)
-                local deadline = tick() + 30
-                repeat
-                    task.wait(1)
-                until tick() > deadline or pcall(function()
-                    local lp = game:GetService("Players").LocalPlayer
-                    assert(lp and lp.Character)
-                end)
-                task.wait(2) -- extra wacht voor wereld laden
-                print("[PeakEvo][Watcher] Herladen via URL...")
-                local ok, err = pcall(function()
-                    local src = game:HttpGet(url)
-                    local fn, lerr = loadstring(src)
-                    if fn then
-                        task.spawn(fn)
-                    else
-                        warn("[PeakEvo][Watcher] loadstring fout: "..tostring(lerr))
-                    end
-                end)
-                if not ok then
-                    warn("[PeakEvo][Watcher] HttpGet fout: "..tostring(err))
-                end
-                task.wait(6) -- wacht zodat de nieuwe GUI tijd heeft om te laden
-            end
-        end
-    end)
+-- queue_on_teleport: zet het script klaar om opnieuw uitgevoerd te worden
+-- na een teleport naar een andere place. Dit is dezelfde methode als Infinity Yield.
+-- Werkt in Velocity, Synapse, Fluxus en de meeste andere executors.
+local queueteleport = queue_on_teleport
+    or (syn and syn.queue_on_teleport)
+    or (fluxus and fluxus.queue_on_teleport)
+    or nil
+
+if queueteleport then
+    local url = _G._PeakEvoURL or ""
+    if url ~= "" then
+        -- Script dat na teleport uitgevoerd wordt
+        local loaderScript = '_G._PeakEvoURL="'..url..'"\nloadstring(game:HttpGet("'..url..'"))()'
+        pcall(function() queueteleport(loaderScript) end)
+        Log("AutoRestart", "queue_on_teleport ingesteld")
+    else
+        Warn("AutoRestart", "Geen _G._PeakEvoURL - stel in voor teleport-herstart")
+    end
+else
+    Warn("AutoRestart", "queue_on_teleport niet beschikbaar in deze executor")
 end
 
 -- ==============================================================================
