@@ -1,12 +1,14 @@
 -- ============================================================
 -- Peak Evo - RB1000 | Stable Build voor Velocity
--- v1.8 - Memory leak fixes + ingebouwde run timer
+-- v1.9 - Auto-herstart na teleport (geen autoexec nodig)
 -- ============================================================
 
 local Players             = game:GetService("Players")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local VirtualUser         = game:GetService("VirtualUser")
 local TweenService        = game:GetService("TweenService")
+local TeleportService     = game:GetService("TeleportService")
+local RunService          = game:GetService("RunService")
 local Workspace           = game.Workspace
 local LocalPlayer         = Players.LocalPlayer
 if not LocalPlayer then warn("[PeakEvo] Geen LocalPlayer!") return end
@@ -15,7 +17,61 @@ local function Log(m,t)  print("[PeakEvo]["..m.."] "..tostring(t)) end
 local function Warn(m,t) warn("[PeakEvo]["..m.."] "..tostring(t))  end
 
 -- ==============================================================================
--- ANTI-AFK — maar 1 connection, nooit dubbel
+-- AUTO-HERSTART NA TELEPORT
+-- Slaat de script-source op in _G zodat hij zichzelf kan herladen na teleport.
+-- Werkt zonder autoexec map.
+-- ==============================================================================
+do
+    -- Sla script source op bij eerste uitvoering
+    if not _G._PeakEvoSource then
+        -- Probeer de raw source op te halen via de omgeving
+        local src = nil
+        pcall(function()
+            -- In Velocity / Synapse is `getscriptbytecode` of `getscriptclosure` beschikbaar,
+            -- maar de eenvoudigste methode is de URL opslaan als je via loadstring laadt.
+            -- We registreren een herlaad-functie die de state doorgeeft.
+            src = game:HttpGet(
+                -- Vervang deze URL met jouw eigen raw script URL (Pastebin / GitHub raw etc.)
+                -- Voorbeeld: "https://raw.githubusercontent.com/jouw-naam/repo/main/PeakEvo.lua"
+                _G._PeakEvoURL or "VERVANG_MET_JOUW_SCRIPT_URL"
+            )
+        end)
+        _G._PeakEvoSource = src
+        Log("AutoRestart", "Script source opgeslagen in _G._PeakEvoSource")
+    end
+
+    -- Registreer teleport-listener maar 1x
+    if not _G._PeakTeleportConn then
+        _G._PeakTeleportConn = TeleportService.LocalPlayerArrivedFromTeleport:Connect(function(_, teleportData)
+            Log("AutoRestart", "Teleport gedetecteerd, script herladen...")
+
+            -- Kleine wacht zodat de wereld tijd heeft om te laden
+            task.wait(3)
+
+            -- Herlaad het script via de opgeslagen source
+            local src = _G._PeakEvoSource
+            if src and src ~= "VERVANG_MET_JOUW_SCRIPT_URL" and src ~= "" then
+                local ok, err = pcall(loadstring, src)
+                if ok then
+                    Log("AutoRestart", "Script succesvol herladen!")
+                    local fn = loadstring(src)
+                    if fn then
+                        task.spawn(fn)
+                    end
+                else
+                    Warn("AutoRestart", "Fout bij herladen: " .. tostring(err))
+                end
+            else
+                Warn("AutoRestart", "Geen script URL gevonden in _G._PeakEvoURL!")
+                Warn("AutoRestart", "Voeg bovenaan je executor toe: _G._PeakEvoURL = 'jouw_url_hier'")
+            end
+        end)
+        Log("AutoRestart", "Teleport-listener actief")
+    end
+end
+
+-- ==============================================================================
+-- ANTI-AFK â€” maar 1 connection, nooit dubbel
 -- ==============================================================================
 if not _G._PeakAFK then
     _G._PeakAFK = LocalPlayer.Idled:Connect(function()
@@ -48,7 +104,7 @@ end
 local S = LoadState()
 SaveState(S)
 
-local function SetPhase(p) S.Phase=p SaveState(S) Log("Phase","→ "..p) end
+local function SetPhase(p) S.Phase=p SaveState(S) Log("Phase","â†’ "..p) end
 
 Log("Boot","Running="..tostring(S.Running).." Phase="..S.Phase.." Run="..S.CurrentRun)
 
@@ -83,7 +139,7 @@ TFix.BackgroundColor3=Color3.fromRGB(26,26,32) TFix.BorderSizePixel=0 TFix.Paren
 
 local TL=Instance.new("TextLabel")
 TL.Size=UDim2.new(1,-12,1,0) TL.Position=UDim2.new(0,12,0,0)
-TL.BackgroundTransparency=1 TL.Text="⚡ Peak Evo - RB1000"
+TL.BackgroundTransparency=1 TL.Text="âš¡ Peak Evo - RB1000"
 TL.TextColor3=Color3.fromRGB(220,220,255) TL.TextSize=13
 TL.Font=Enum.Font.GothamBold TL.TextXAlignment=Enum.TextXAlignment.Left TL.Parent=TB
 
@@ -118,7 +174,7 @@ local function DD(lbl,opts,def,y,cb)
     vl.Font=Enum.Font.GothamBold vl.TextXAlignment=Enum.TextXAlignment.Left vl.Parent=c
     local al=Instance.new("TextLabel")
     al.Size=UDim2.new(0,18,1,0) al.Position=UDim2.new(1,-20,0,0)
-    al.BackgroundTransparency=1 al.Text="›" al.TextColor3=Color3.fromRGB(120,120,160)
+    al.BackgroundTransparency=1 al.Text="â€º" al.TextColor3=Color3.fromRGB(120,120,160)
     al.TextSize=14 al.Font=Enum.Font.GothamBold al.Parent=c
     local idx=1
     for i,v in ipairs(opts) do if tostring(v)==tostring(def) then idx=i break end end
@@ -207,13 +263,12 @@ local VE=StatBox("Enemy", 1,1)
 local VT=StatBox("Tijd",  0,2)
 local VB=StatBox("Best",  1,2)
 local VK=StatBox("Kills", 0,3)
--- Live run timer (telt zelf)
 local VL=StatBox("Timer", 1,3)
 
 Div(278)
-local BtnStart = Btn("▶ START", 10,  282, 84, Color3.fromRGB(55,150,80))
-local BtnStop  = Btn("⏹ STOP",  108, 282, 84, Color3.fromRGB(170,55,55))
-local BtnParty = Btn("🎉 Party", 206, 282, 84, Color3.fromRGB(90,70,150))
+local BtnStart = Btn("â–¶ START", 10,  282, 84, Color3.fromRGB(55,150,80))
+local BtnStop  = Btn("â–  STOP",  108, 282, 84, Color3.fromRGB(170,55,55))
+local BtnParty = Btn("ðŸŽ® Party", 206, 282, 84, Color3.fromRGB(90,70,150))
 
 local FaseKleur={IDLE=Color3.fromRGB(120,120,140),LOBBY=Color3.fromRGB(100,180,255),PARTY=Color3.fromRGB(255,200,80),DUNGEON=Color3.fromRGB(80,220,120)}
 
@@ -228,18 +283,16 @@ local function UE(a,t) pcall(function() VE.Text=a and (a.."/"..t) or "-" end) en
 local function UK() pcall(function() VK.Text=tostring(S.TotalKills) end) end
 local function UT(s) pcall(function() VT.Text=s or "-" end) end
 local function UB(s) if not s then return end pcall(function() VB.Text=string.format("%d:%02d",math.floor(s/60),s%60) end) end
-local function UL(s) pcall(function() VL.Text=s or "-" end) end -- live timer label
+local function UL(s) pcall(function() VL.Text=s or "-" end) end
 
 -- ==============================================================================
--- LIVE TIMER — telt in dungeon, geen connections, geen leak
--- Wordt gestart/gestopt via S.RunStart=tick() en S.Running
+-- LIVE TIMER
 -- ==============================================================================
 local timerConn = nil
 local function StartLiveTimer()
-    -- Cleanup vorige timer eerst
     if timerConn then pcall(function() timerConn:Disconnect() end) timerConn=nil end
     S.RunStart = tick()
-    timerConn = game:GetService("RunService").Heartbeat:Connect(function()
+    timerConn = RunService.Heartbeat:Connect(function()
         if not S.Running or S.Phase ~= "DUNGEON" then
             pcall(function() timerConn:Disconnect() end)
             timerConn = nil
@@ -347,7 +400,7 @@ local LobbyRoute={
 local DungeonEnd=Vector3.new(-880.3,31.6,-507.3)
 
 -- ==============================================================================
--- KLIK — geen getconnections spam, alleen VirtualInput
+-- KLIK
 -- ==============================================================================
 local function ClickObj(obj)
     if not obj then return false end
@@ -355,7 +408,6 @@ local function ClickObj(obj)
         if not obj.AbsolutePosition then return end
         local cx=obj.AbsolutePosition.X+obj.AbsoluteSize.X/2
         local cy=obj.AbsolutePosition.Y+obj.AbsoluteSize.Y/2
-        -- Probeer eerst via Activated event, dan VirtualInput als fallback
         local fired=false
         pcall(function()
             for _,c in pairs(getconnections(obj.Activated)) do
@@ -369,7 +421,6 @@ local function ClickObj(obj)
                 end
             end)
         end
-        -- Altijd ook VirtualInput voor zekerheid
         VirtualInputManager:SendMouseButtonEvent(cx,cy,0,true,game,0)
         task.wait(0.05)
         VirtualInputManager:SendMouseButtonEvent(cx,cy,0,false,game,0)
@@ -408,23 +459,19 @@ local function FindStartBtn()
     if ok and b and b.Visible then return b end
 end
 
--- Again knop — zoekt op alle plekken
 local function FindAgainBtn()
     local found=nil
     pcall(function()
         local pg=LocalPlayer:FindFirstChild("PlayerGui")
         local pog=pg and pg:FindFirstChild("PartyOverGui") if not pog then return end
         local bg=pog.Frame and pog.Frame:FindFirstChild("bg") if not bg then return end
-        -- Direct
         local b=bg:FindFirstChild("againbtn")
         if b and b.Visible then Log("Again","gevonden in bg") found=b return end
-        -- In againFrame
         local af=bg:FindFirstChild("againFrame")
         if af then
             local b2=af:FindFirstChild("againbtn")
             if b2 and b2.Visible then Log("Again","gevonden in againFrame") found=b2 return end
         end
-        -- Deep search fallback
         local b3=bg:FindFirstChild("againbtn",true)
         if b3 and b3.Visible then Log("Again","gevonden via deep search") found=b3 end
     end)
@@ -468,7 +515,7 @@ local function TryCreateParty()
 end
 
 -- ==============================================================================
--- COMBAT — VirtualUser:CaptureController maar 1x per aanval, niet elke frame
+-- COMBAT
 -- ==============================================================================
 local function GetChar()
     local c=LocalPlayer.Character if not c then return nil,nil,nil end
@@ -501,13 +548,11 @@ local function FindEnemy()
     return cl
 end
 
--- Attack: CaptureController maar 1x, niet elke 0.1s
 local _lastCapture=0
 local function Attack(target)
     pcall(function()
         if not target or not target:FindFirstChild("HumanoidRootPart") then return end
         local _,_,root=GetChar() if not root then return end
-        -- CaptureController max 1x per seconde
         if tick()-_lastCapture>1 then
             VirtualUser:CaptureController()
             _lastCapture=tick()
@@ -533,7 +578,6 @@ local function Walk(targetPos)
     while tick()<timeout do
         if not S.Running then pcall(function() hum:MoveTo(root.Position) end) return end
 
-        -- Stop zodra eindscherm zichtbaar
         if IsEndScreenVisible() then
             Log("Walk","Eindscherm zichtbaar, stoppen")
             pcall(function() hum:MoveTo(root.Position) end)
@@ -544,7 +588,6 @@ local function Walk(targetPos)
         if not char or not hum or not root then task.wait(1) return end
         if (root.Position-targetPos).Magnitude<=4 then break end
 
-        -- Enemy counter elke 2s
         if tick()-lastEL>2 then
             local alive,total=CountEnemies() UE(alive,total)
             local nk=totalStart-alive
@@ -565,14 +608,13 @@ local function Walk(targetPos)
                     pcall(function()
                         if enemy.HumanoidRootPart then hum:MoveTo(enemy.HumanoidRootPart.Position) end
                     end)
-                    task.wait(0.15) -- iets meer delay = minder CPU
+                    task.wait(0.15)
                 until tick()>ct or not enemy or not enemy.Parent
                     or not enemy:FindFirstChild("Humanoid") or enemy.Humanoid.Health<=0
                 pcall(function() hum:MoveTo(targetPos) end)
             end
         end
 
-        -- Stuck check
         char,hum,root=GetChar()
         if root then
             if (root.Position-lastPos).Magnitude<0.5 then
@@ -584,7 +626,7 @@ local function Walk(targetPos)
             else stuckT=0 end
             lastPos=root.Position
         end
-        task.wait(0.15) -- was 0.1, nu 0.15 = minder CPU
+        task.wait(0.15)
     end
     local alive,total=CountEnemies()
     Log("Combat","Klaar | "..alive.."/"..total.." over") UE(alive,total)
@@ -600,7 +642,6 @@ local function RunDungeonPhase()
     WaitForLoadingGui(30)  if not S.Running then return end
     WaitForDoor()          if not S.Running then return end
 
-    -- Start live timer
     StartLiveTimer()
 
     local alive,total=CountEnemies()
@@ -610,7 +651,6 @@ local function RunDungeonPhase()
     Walk(DungeonEnd)
     if not S.Running then StopLiveTimer() return end
 
-    -- Stop timer, sla tijd op
     StopLiveTimer()
     local elapsed=math.floor(tick()-S.RunStart)
     local timeStr=string.format("%d:%02d",math.floor(elapsed/60),elapsed%60)
@@ -628,7 +668,6 @@ local function RunDungeonPhase()
         S.Running=false SaveState(S) UP("IDLE") UE(nil,nil) return
     end
 
-    -- Wacht op Again knop
     US("Wacht Opnieuw...") Log("Dungeon","Zoeken againbtn (max 40s)...")
     local dl=tick()+40
     while tick()<dl do
@@ -663,7 +702,7 @@ local function RunLobbyPhase()
             local t=tick() local done=false
             local conn=hum.MoveToFinished:Connect(function() done=true end)
             while not done and tick()-t<6 do task.wait(0.1) end
-            pcall(function() conn:Disconnect() end) -- altijd disconnecten
+            pcall(function() conn:Disconnect() end)
         end)
         task.wait(0.1)
     end
@@ -682,8 +721,7 @@ local function AutoStart()
     US("Wacht karakter...")
     local t=tick() repeat task.wait(0.3) until GetChar() or tick()-t>15
     WaitForWorldLoad(15)
-    
-    -- Geef de wereld extra tijd als Phase al DUNGEON is
+
     local inDungeon = IsInDungeon()
     if not inDungeon and S.Phase == "DUNGEON" then
         US("Wacht op dungeon detectie...")
@@ -730,12 +768,10 @@ end)
 US("Idle") UR() UP(S.Phase) UK() UL(nil)
 if S.BestTime then UB(S.BestTime) end
 
--- Direct opstarten als we al in dungeon zijn, ongeacht state
 task.spawn(function()
-    task.wait(2) -- wacht even tot wereld laadt
+    task.wait(2)
     local inDungeon = IsInDungeon()
-    
-    -- Extra wacht als nog niet gedetecteerd
+
     if not inDungeon then
         local dl = tick() + 10
         while tick() < dl do
