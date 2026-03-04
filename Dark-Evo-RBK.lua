@@ -682,7 +682,18 @@ local function AutoStart()
     US("Wacht karakter...")
     local t=tick() repeat task.wait(0.3) until GetChar() or tick()-t>15
     WaitForWorldLoad(15)
-    local inDungeon=IsInDungeon()
+    
+    -- Geef de wereld extra tijd als Phase al DUNGEON is
+    local inDungeon = IsInDungeon()
+    if not inDungeon and S.Phase == "DUNGEON" then
+        US("Wacht op dungeon detectie...")
+        local dl = tick() + 10
+        while tick() < dl and not inDungeon do
+            task.wait(0.5)
+            inDungeon = IsInDungeon()
+        end
+    end
+
     Log("AutoStart","Phase="..S.Phase.." InDungeon="..tostring(inDungeon))
     if S.Phase=="DUNGEON" or inDungeon then
         US("Dungeon! Run "..S.CurrentRun) RunDungeonPhase()
