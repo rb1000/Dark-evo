@@ -1,6 +1,6 @@
 -- ============================================================
 -- Peak Evo - RB1000 | Stable Build voor Velocity
--- v1.9 - Auto-herstart na teleport (geen autoexec nodig)
+-- v2.0 - Crash fix, walk fix, timing fix
 -- ============================================================
 
 local Players             = game:GetService("Players")
@@ -18,56 +18,34 @@ local function Warn(m,t) warn("[PeakEvo]["..m.."] "..tostring(t))  end
 
 -- ==============================================================================
 -- AUTO-HERSTART NA TELEPORT
--- Slaat de script-source op in _G zodat hij zichzelf kan herladen na teleport.
--- Werkt zonder autoexec map.
+-- Geen HttpGet bij opstart - alleen listener registreren.
+-- Script herlaadt zichzelf via _G._PeakEvoURL na teleport.
+-- Gebruik in executor: _G._PeakEvoURL = "jouw_url" dan loadstring(game:HttpGet(...))()
 -- ==============================================================================
-do
-    -- Sla script source op bij eerste uitvoering
-    if not _G._PeakEvoSource then
-        -- Probeer de raw source op te halen via de omgeving
-        local src = nil
-        pcall(function()
-            -- In Velocity / Synapse is `getscriptbytecode` of `getscriptclosure` beschikbaar,
-            -- maar de eenvoudigste methode is de URL opslaan als je via loadstring laadt.
-            -- We registreren een herlaad-functie die de state doorgeeft.
-            src = game:HttpGet(
-                -- Vervang deze URL met jouw eigen raw script URL (Pastebin / GitHub raw etc.)
-                -- Voorbeeld: "https://raw.githubusercontent.com/jouw-naam/repo/main/PeakEvo.lua"
-                _G._PeakEvoURL or "VERVANG_MET_JOUW_SCRIPT_URL"
-            )
-        end)
-        _G._PeakEvoSource = src
-        Log("AutoRestart", "Script source opgeslagen in _G._PeakEvoSource")
-    end
-
-    -- Registreer teleport-listener maar 1x
-    if not _G._PeakTeleportConn then
-        _G._PeakTeleportConn = TeleportService.LocalPlayerArrivedFromTeleport:Connect(function(_, teleportData)
-            Log("AutoRestart", "Teleport gedetecteerd, script herladen...")
-
-            -- Kleine wacht zodat de wereld tijd heeft om te laden
-            task.wait(3)
-
-            -- Herlaad het script via de opgeslagen source
-            local src = _G._PeakEvoSource
-            if src and src ~= "VERVANG_MET_JOUW_SCRIPT_URL" and src ~= "" then
-                local ok, err = pcall(loadstring, src)
-                if ok then
-                    Log("AutoRestart", "Script succesvol herladen!")
-                    local fn = loadstring(src)
-                    if fn then
-                        task.spawn(fn)
-                    end
-                else
-                    Warn("AutoRestart", "Fout bij herladen: " .. tostring(err))
-                end
+if not _G._PeakTeleportConn then
+    _G._PeakTeleportConn = TeleportService.LocalPlayerArrivedFromTeleport:Connect(function()
+        Log("AutoRestart", "Teleport gedetecteerd, wacht op wereld...")
+        task.wait(4)
+        local url = _G._PeakEvoURL
+        if not url or url == "" then
+            Warn("AutoRestart", "Geen _G._PeakEvoURL ingesteld, kan niet herladen")
+            return
+        end
+        Log("AutoRestart", "Herladen via URL...")
+        local ok, result = pcall(function()
+            local src = game:HttpGet(url)
+            local fn, err = loadstring(src)
+            if fn then
+                task.spawn(fn)
             else
-                Warn("AutoRestart", "Geen script URL gevonden in _G._PeakEvoURL!")
-                Warn("AutoRestart", "Voeg bovenaan je executor toe: _G._PeakEvoURL = 'jouw_url_hier'")
+                Warn("AutoRestart", "loadstring fout: "..tostring(err))
             end
         end)
-        Log("AutoRestart", "Teleport-listener actief")
-    end
+        if not ok then
+            Warn("AutoRestart", "HttpGet fout: "..tostring(result))
+        end
+    end)
+    Log("AutoRestart", "Teleport-listener actief")
 end
 
 -- ==============================================================================
@@ -128,7 +106,6 @@ Main.BackgroundColor3=Color3.fromRGB(18,18,22)
 Main.BorderSizePixel=0 Main.Active=true Main.Draggable=true Main.Parent=Screen
 Instance.new("UICorner",Main).CornerRadius=UDim.new(0,8)
 
--- Titelbalk
 local TB=Instance.new("Frame")
 TB.Size=UDim2.new(1,0,0,32) TB.BackgroundColor3=Color3.fromRGB(26,26,32)
 TB.BorderSizePixel=0 TB.Parent=Main
@@ -143,7 +120,6 @@ TL.BackgroundTransparency=1 TL.Text=">> Peak Evo - RB1000"
 TL.TextColor3=Color3.fromRGB(220,220,255) TL.TextSize=13
 TL.Font=Enum.Font.GothamBold TL.TextXAlignment=Enum.TextXAlignment.Left TL.Parent=TB
 
--- Helpers
 local function Hdr(txt,y)
     local l=Instance.new("TextLabel")
     l.Size=UDim2.new(1,-20,0,14) l.Position=UDim2.new(0,10,0,y)
@@ -246,7 +222,6 @@ local function StatBox(key,col,row)
     return vl
 end
 
--- Layout
 Hdr("CONFIG",36)
 DD("Difficulty",{"Easy","Normal","Hard"},S.Difficulty,52,function(v) S.Difficulty=v end)
 DD("Runs",{"1","2","3","5","10","25","50","Oneindig"},"Oneindig",80,function(v)
@@ -272,7 +247,6 @@ local BtnParty = Btn("[Party]", 206, 282, 84, Color3.fromRGB(90,70,150))
 
 local FaseKleur={IDLE=Color3.fromRGB(120,120,140),LOBBY=Color3.fromRGB(100,180,255),PARTY=Color3.fromRGB(255,200,80),DUNGEON=Color3.fromRGB(80,220,120)}
 
--- Update helpers
 local function US(t) pcall(function() VS.Text=tostring(t) end) Log("Status",t) end
 local function UP(p)
     S.Phase=p SaveState(S)
@@ -323,9 +297,9 @@ end
 local function IsInDungeon()
     local ok,r=pcall(function()
         local s=Workspace:FindFirstChild("Stage") if not s then return false end
-        if s:FindFirstChild("baseStage") then Log("Detect","Lobby") return false end
+        if s:FindFirstChild("baseStage") then return false end
         for _,c in pairs(s:GetChildren()) do
-            if string.sub(c.Name,1,3)=="map" then Log("Detect","Dungeon: "..c.Name) return true end
+            if string.sub(c.Name,1,3)=="map" then return true end
         end
         return false
     end)
@@ -466,14 +440,14 @@ local function FindAgainBtn()
         local pog=pg and pg:FindFirstChild("PartyOverGui") if not pog then return end
         local bg=pog.Frame and pog.Frame:FindFirstChild("bg") if not bg then return end
         local b=bg:FindFirstChild("againbtn")
-        if b and b.Visible then Log("Again","gevonden in bg") found=b return end
+        if b and b.Visible then found=b return end
         local af=bg:FindFirstChild("againFrame")
         if af then
             local b2=af:FindFirstChild("againbtn")
-            if b2 and b2.Visible then Log("Again","gevonden in againFrame") found=b2 return end
+            if b2 and b2.Visible then found=b2 return end
         end
         local b3=bg:FindFirstChild("againbtn",true)
-        if b3 and b3.Visible then Log("Again","gevonden via deep search") found=b3 end
+        if b3 and b3.Visible then found=b3 end
     end)
     return found
 end
@@ -566,11 +540,26 @@ end
 
 -- ==============================================================================
 -- LOPEN MET COMBAT
+-- FIX: MoveTo wordt elke 5s herhaald zodat hij niet terugloopt na timeout.
+-- FIX: Loopt altijd naar het DICHTSTBIJZIJNDE punt op de route vooruit,
+--      zodat hij niet terugloopt als hij er al bijna is.
+-- FIX: Eindscherm check zit VOOR de again-klik, niet erna.
 -- ==============================================================================
 local function Walk(targetPos)
     local char,hum,root=GetChar()
     if not char or not hum or not root then return end
-    hum:MoveTo(targetPos)
+
+    -- FIX: geef MoveTo elke 5s opnieuw op zodat Roblox timeout niet terugloopt
+    local lastMoveTo = 0
+    local function RefreshMoveTo()
+        if tick()-lastMoveTo > 4.5 then
+            pcall(function() hum:MoveTo(targetPos) end)
+            lastMoveTo = tick()
+        end
+    end
+
+    RefreshMoveTo()
+
     local stuckT=0 local lastPos=root.Position
     local timeout=tick()+300 local lastEL=tick()
     local _,totalStart=CountEnemies() local killsBefore=0
@@ -578,16 +567,26 @@ local function Walk(targetPos)
     while tick()<timeout do
         if not S.Running then pcall(function() hum:MoveTo(root.Position) end) return end
 
+        -- Stop zodra eindscherm zichtbaar - dit is het echte einde van de run
         if IsEndScreenVisible() then
-            Log("Walk","Eindscherm zichtbaar, stoppen")
+            Log("Walk","Eindscherm zichtbaar, run klaar")
             pcall(function() hum:MoveTo(root.Position) end)
             break
         end
 
         char,hum,root=GetChar()
         if not char or not hum or not root then task.wait(1) return end
-        if (root.Position-targetPos).Magnitude<=4 then break end
 
+        -- Bereikt?
+        if (root.Position-targetPos).Magnitude<=4 then
+            Log("Walk","Doel bereikt")
+            break
+        end
+
+        -- Ververs MoveTo elke ~5s zodat hij niet terugloopt
+        RefreshMoveTo()
+
+        -- Enemy counter elke 2s
         if tick()-lastEL>2 then
             local alive,total=CountEnemies() UE(alive,total)
             local nk=totalStart-alive
@@ -611,10 +610,13 @@ local function Walk(targetPos)
                     task.wait(0.15)
                 until tick()>ct or not enemy or not enemy.Parent
                     or not enemy:FindFirstChild("Humanoid") or enemy.Humanoid.Health<=0
-                pcall(function() hum:MoveTo(targetPos) end)
+                -- Na gevecht: hervat lopen, reset MoveTo timer zodat hij direct opnieuw stuurt
+                lastMoveTo = 0
+                RefreshMoveTo()
             end
         end
 
+        -- Stuck check
         char,hum,root=GetChar()
         if root then
             if (root.Position-lastPos).Magnitude<0.5 then
@@ -622,12 +624,14 @@ local function Walk(targetPos)
                 if stuckT>20 then
                     pcall(function() hum.Jump=true end)
                     Log("Move","Jump") stuckT=0
+                    lastMoveTo=0 -- reset zodat hij na jump direct opnieuw MoveTo krijgt
                 end
             else stuckT=0 end
             lastPos=root.Position
         end
         task.wait(0.15)
     end
+
     local alive,total=CountEnemies()
     Log("Combat","Klaar | "..alive.."/"..total.." over") UE(alive,total)
 end
@@ -651,6 +655,16 @@ local function RunDungeonPhase()
     Walk(DungeonEnd)
     if not S.Running then StopLiveTimer() return end
 
+    -- Wacht tot eindscherm echt zichtbaar is voordat we timer stoppen
+    -- (Walk stopt al bij eindscherm, maar voor zekerheid even wachten)
+    local endWait = tick()+10
+    while tick()<endWait and not IsEndScreenVisible() do
+        task.wait(0.3)
+    end
+    if not IsEndScreenVisible() then
+        Warn("Dungeon","Eindscherm niet gevonden na walk")
+    end
+
     StopLiveTimer()
     local elapsed=math.floor(tick()-S.RunStart)
     local timeStr=string.format("%d:%02d",math.floor(elapsed/60),elapsed%60)
@@ -668,19 +682,34 @@ local function RunDungeonPhase()
         S.Running=false SaveState(S) UP("IDLE") UE(nil,nil) return
     end
 
-    US("Wacht Opnieuw...") Log("Dungeon","Zoeken againbtn (max 40s)...")
+    -- Wacht op Again knop - alleen klikken als eindscherm zichtbaar is
+    US("Wacht Again...") Log("Dungeon","Zoeken againbtn (max 40s)...")
     local dl=tick()+40
     while tick()<dl do
         if not S.Running then return end
+        -- Controleer eerst of eindscherm nog zichtbaar is
+        if not IsEndScreenVisible() then
+            -- Eindscherm verdwenen zonder dat wij klikten = al geteleporteerd
+            Log("Dungeon","Eindscherm verdwenen, al geteleporteerd")
+            SetPhase("DUNGEON")
+            return
+        end
         local b=FindAgainBtn()
         if b then
             Log("Dungeon","Again gevonden! Klikken...")
-            ClickObj(b) task.wait(1.5)
-            if not IsEndScreenVisible() then
-                SetPhase("DUNGEON") Log("Dungeon","Teleport, Phase=DUNGEON bewaard")
-                US("Teleporteren...") return
+            ClickObj(b)
+            -- Wacht tot eindscherm verdwijnt (= teleport begint)
+            local tw=tick()+8
+            while tick()<tw do
+                task.wait(0.3)
+                if not IsEndScreenVisible() then
+                    Log("Dungeon","Teleport gestart")
+                    SetPhase("DUNGEON")
+                    US("Teleporteren...")
+                    return
+                end
             end
-            Log("Dungeon","Eindscherm nog zichtbaar, opnieuw klikken...")
+            Log("Dungeon","Eindscherm nog zichtbaar na klik, opnieuw proberen...")
         end
         task.wait(0.5)
     end
