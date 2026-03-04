@@ -1,13 +1,19 @@
 -- ============================================================
 -- Peak Evo - RB1000 | Stable Build voor Velocity
--- v1.2 - LoadingGui + Deur verdwijnt detectie
+-- v1.3 - Teleport-proof state + deur + loading detectie
+-- 
+-- HOE HET WERKT NA TELEPORT:
+--   Loader herlaadt dit script → _G.PeakEvo nog intact
+--   → WaitForWorldLoad() wacht tot Stage geladen is
+--   → _G.PeakEvo.Phase bepaalt wat er moet gebeuren
+--   → DUNGEON phase = LoadingGui wachten + deur wachten + lopen
 -- ============================================================
 
 local ok, Library = pcall(function()
     return loadstring(game:HttpGet("https://raw.githubusercontent.com/xHeptc/Kavo-UI-Library/main/source.lua"))()
 end)
 if not ok or not Library then
-    warn("[PeakEvo] UI Library laden mislukt:", Library)
+    warn("[PeakEvo] UI Library laden mislukt:", tostring(Library))
     return
 end
 
@@ -17,16 +23,16 @@ local Window = Library.CreateLib("Peak Evo - RB1000 (Stable)", "DarkTheme")
 -- SERVICES
 -- ==============================================================================
 local function GetService(name)
-    local s, result = pcall(function() return game:GetService(name) end)
-    return s and result or nil
+    local s, r = pcall(function() return game:GetService(name) end)
+    return s and r or nil
 end
 
 local Players             = GetService("Players")
 local VirtualInputManager = GetService("VirtualInputManager")
 local VirtualUser         = GetService("VirtualUser")
 local Workspace           = game.Workspace
+local LocalPlayer         = Players and Players.LocalPlayer
 
-local LocalPlayer = Players and Players.LocalPlayer
 if not LocalPlayer then warn("[PeakEvo] Geen LocalPlayer!") return end
 
 -- ==============================================================================
@@ -42,7 +48,9 @@ pcall(function()
 end)
 
 -- ==============================================================================
--- STATE (_G overleeft teleport)
+-- STATE — _G overleeft elke teleport
+-- Alleen aanmaken als het nog niet bestaat (fresh start)
+-- Na teleport blijven alle waarden bewaard
 -- ==============================================================================
 if type(_G.PeakEvo) ~= "table" then
     _G.PeakEvo = {
@@ -52,13 +60,15 @@ if type(_G.PeakEvo) ~= "table" then
         Difficulty   = "Easy",
         MaxRuns      = 0,
         CurrentRun   = 0,
+        -- Fases: IDLE → LOBBY → PARTY → DUNGEON → (loop)
         Phase        = "IDLE",
     }
 end
 local S = _G.PeakEvo
+print("[Boot] State geladen: Running=" .. tostring(S.Running) .. " Phase=" .. S.Phase .. " Run=" .. S.CurrentRun)
 
 -- ==============================================================================
--- GUI SETUP (vroeg zodat UpdateStatus overal werkt)
+-- GUI SETUP (vroeg definiëren zodat UpdateStatus overal beschikbaar is)
 -- ==============================================================================
 local MainTab        = Window:NewTab("Main")
 local Section        = MainTab:NewSection("Instellingen")
@@ -73,25 +83,54 @@ end
 
 local function UpdateRuns(current, max)
     pcall(function()
-        if max == 0 then
-            RunsLabel:UpdateLabel("Runs: " .. current .. " / inf")
-        else
-            RunsLabel:UpdateLabel("Runs: " .. current .. " / " .. max)
-        end
+        local suffix = (max == 0) and " / inf" or (" / " .. max)
+        RunsLabel:UpdateLabel("Runs: " .. current .. suffix)
     end)
 end
 
 -- ==============================================================================
+-- WERELD LADEN WACHTER
+-- Na een teleport is Workspace nog leeg. Wacht tot Stage bestaat en children heeft.
+-- ==============================================================================
+local function WaitForWorldLoad(maxWait)
+    maxWait = maxWait or 15
+    local deadline = tick() + maxWait
+    UpdateStatus("Wereld laden...")
+    while tick() < deadline do
+        local ok2, ready = pcall(function()
+            local stage = Workspace:FindFirstChild("Stage")
+            return stage ~= nil and #stage:GetChildren() > 0
+        end)
+        if ok2 and ready then
+            print("[World] Stage geladen")
+            task.wait(0.5) -- klein extra moment voor stabiliteit
+            return true
+        end
+        task.wait(0.3)
+    end
+    warn("[World] Stage niet gevonden na " .. maxWait .. "s")
+    return false
+end
+
+-- ==============================================================================
 -- DETECTIE: IN DUNGEON?
+-- baseStage = lobby, map* = dungeon
 -- ==============================================================================
 local function IsInDungeon()
     local ok2, result = pcall(function()
         local stage = Workspace:FindFirstChild("Stage")
         if not stage then return false end
-        if stage:FindFirstChild("baseStage") then return false end
-        for _, child in pairs(stage:GetChildren()) do
-            if string.sub(child.Name, 1, 3) == "map" then return true end
+        if stage:FindFirstChild("baseStage") then
+            print("[Detect] baseStage gevonden = lobby")
+            return false
         end
+        for _, child in pairs(stage:GetChildren()) do
+            if string.sub(child.Name, 1, 3) == "map" then
+                print("[Detect] Dungeon map gevonden:", child.Name)
+                return true
+            end
+        end
+        print("[Detect] Geen map gevonden in Stage")
         return false
     end)
     return ok2 and result or false
@@ -99,7 +138,7 @@ end
 
 -- ==============================================================================
 -- LOADINGGUI WACHTER
--- Wacht tot PlayerGui > LoadingGui verdwijnt of disabled wordt
+-- PlayerGui > LoadingGui moet weg zijn voordat we beginnen
 -- ==============================================================================
 local function WaitForLoadingGui(maxWait)
     maxWait = maxWait or 30
@@ -117,6 +156,7 @@ local function WaitForLoadingGui(maxWait)
             task.wait(0.3)
         else
             print("[Loading] Klaar")
+            task.wait(0.2)
             return
         end
     end
@@ -126,7 +166,7 @@ end
 -- ==============================================================================
 -- DEUR WACHTER
 -- Zoekt door1 in Stage > map* > Art
--- Wacht tot het object verdwijnt uit de workspace (= timer 0, deur weg)
+-- Wacht tot door1.Parent == nil (object verwijderd = timer op 0)
 -- ==============================================================================
 local function FindDoor()
     local found = nil
@@ -138,7 +178,11 @@ local function FindDoor()
                 local art = map:FindFirstChild("Art")
                 if art then
                     local door = art:FindFirstChild("door1")
-                    if door then found = door return end
+                    if door then
+                        found = door
+                        print("[Deur] Gevonden:", door:GetFullName())
+                        return
+                    end
                 end
             end
         end
@@ -147,15 +191,15 @@ local function FindDoor()
 end
 
 local function WaitForDoorToOpen(maxWait)
-    maxWait   = maxWait or 90
+    maxWait    = maxWait or 90
     local door = FindDoor()
 
     if not door then
-        print("[Deur] Geen deur gevonden, direct doorgaan")
+        print("[Deur] Geen deur aanwezig, direct doorgaan")
         return
     end
 
-    print("[Deur] Deur gevonden, wachten tot hij verdwijnt...")
+    print("[Deur] Wachten tot deur verdwijnt (max " .. maxWait .. "s)...")
     local deadline = tick() + maxWait
     local elapsed  = 0
 
@@ -164,13 +208,12 @@ local function WaitForDoorToOpen(maxWait)
 
         local doorGone = false
         pcall(function()
-            -- Parent is nil = object verwijderd uit workspace
             doorGone = door.Parent == nil
         end)
 
         if doorGone then
             print("[Deur] Deur verdwenen, doorgaan!")
-            UpdateStatus("Deur open! Lopen...")
+            UpdateStatus("Deur open!")
             task.wait(0.5)
             return
         end
@@ -181,7 +224,7 @@ local function WaitForDoorToOpen(maxWait)
     end
 
     warn("[Deur] Timeout " .. maxWait .. "s, toch doorgaan")
-    UpdateStatus("Deur timeout, toch doorgaan")
+    UpdateStatus("Deur timeout, doorgaan")
 end
 
 -- ==============================================================================
@@ -197,7 +240,7 @@ local LobbyRoute = {
 local DungeonEnd = Vector3.new(-880.3, 31.6, -507.3)
 
 -- ==============================================================================
--- KLIK SYSTEEM (crash-safe)
+-- KLIK SYSTEEM
 -- ==============================================================================
 local function ClickGuiObject(guiObject)
     if not guiObject then return false end
@@ -317,6 +360,8 @@ local function TryCreateParty()
             ClickGuiObject(btn)
             task.wait(1.5)
             if not FindPartyStartButton() then
+                -- Sla op dat we naar DUNGEON gaan VOOR de teleport
+                S.Phase = "DUNGEON"
                 UpdateStatus("Party gestart! Teleporteren...")
                 return true
             end
@@ -343,8 +388,8 @@ end
 local function FindClosestEnemy()
     local _, _, root = GetCharParts()
     if not root then return nil end
-    local myPos = root.Position
-    local closest, minDist = nil, S.AttackRange
+    local myPos               = root.Position
+    local closest, minDist    = nil, S.AttackRange
 
     pcall(function()
         local stage = Workspace:FindFirstChild("Stage")
@@ -457,26 +502,32 @@ local function WalkToWithCombat(targetPos)
 end
 
 -- ==============================================================================
--- FASE LOGICA
+-- FASE: DUNGEON
+-- Wordt aangeroepen na elke teleport naar dungeon
 -- ==============================================================================
 local function RunDungeonPhase()
-    S.Phase = "DUNGEON"
+    S.Phase = "DUNGEON" -- bewaar fase voor als script opnieuw laadt
 
-    -- Stap 1: Wacht tot loading screen weg is
+    -- 1. Wacht tot wereld en loading screen klaar zijn
+    WaitForWorldLoad(15)
+    if not S.Running then return end
+
     WaitForLoadingGui(30)
     if not S.Running then return end
 
-    -- Stap 2: Wacht tot deur verdwijnt (timer bereikt 0)
+    -- 2. Wacht tot deur verdwijnt
     WaitForDoorToOpen(90)
     if not S.Running then return end
 
-    -- Stap 3: Loop dungeon door
-    UpdateStatus("Run " .. S.CurrentRun .. " | Dungeon lopen...")
+    -- 3. Loop naar einde dungeon
+    UpdateStatus("Run " .. S.CurrentRun .. " | Lopen...")
     WalkToWithCombat(DungeonEnd)
     if not S.Running then return end
 
+    -- 4. Run tellen
     S.CurrentRun += 1
     UpdateRuns(S.CurrentRun, S.MaxRuns)
+    print("[Dungeon] Run " .. S.CurrentRun .. " klaar")
 
     if S.MaxRuns > 0 and S.CurrentRun > S.MaxRuns then
         UpdateStatus("Klaar! " .. S.MaxRuns .. " runs gedaan")
@@ -485,15 +536,17 @@ local function RunDungeonPhase()
         return
     end
 
-    -- Stap 4: Opnieuw knop
+    -- 5. Opnieuw knop (teleporteert terug naar dungeon)
     UpdateStatus("Wachten op Opnieuw knop...")
     local deadline = tick() + 25
     while tick() < deadline do
         if not S.Running then return end
         local btn = FindAgainButton()
         if btn and ClickGuiObject(btn) then
-            UpdateStatus("Opnieuw geklikt! Teleporteren...")
+            -- BELANGRIJK: phase bewaren VOOR teleport
             S.Phase = "DUNGEON"
+            UpdateStatus("Opnieuw! Teleporteren...")
+            print("[Dungeon] Opnieuw geklikt, phase=DUNGEON bewaard")
             return
         end
         task.wait(0.5)
@@ -505,10 +558,16 @@ local function RunDungeonPhase()
     S.Phase   = "IDLE"
 end
 
+-- ==============================================================================
+-- FASE: LOBBY
+-- ==============================================================================
 local function RunLobbyPhase()
     S.Phase = "LOBBY"
-    UpdateStatus("Lobby route lopen...")
 
+    WaitForWorldLoad(15)
+    if not S.Running then return end
+
+    UpdateStatus("Lobby route lopen...")
     local _, hum, _ = GetCharParts()
     if not hum then
         UpdateStatus("Karakter niet gevonden")
@@ -532,9 +591,11 @@ local function RunLobbyPhase()
     end
 
     if not S.Running then return end
+
     S.Phase = "PARTY"
     UpdateStatus("Party aanmaken...")
     local ok9 = TryCreateParty()
+    -- TryCreateParty zet S.Phase = "DUNGEON" al voor teleport
     if not ok9 then
         UpdateStatus("Party mislukt, gestopt")
         S.Running = false
@@ -542,24 +603,29 @@ local function RunLobbyPhase()
     end
 end
 
+-- ==============================================================================
+-- AUTOSTART — bepaalt op basis van _G state wat er moet gebeuren
+-- ==============================================================================
 local function AutoStart()
     if not S.Running then return end
     UpdateRuns(S.CurrentRun, S.MaxRuns)
 
-    task.wait(1.5)
-    local _, _, root = GetCharParts()
-    if not root then
-        UpdateStatus("Wachten op karakter...")
-        local t = tick()
-        repeat task.wait(0.5) until GetCharParts() or tick() - t > 15
-    end
+    -- Wacht op karakter
+    UpdateStatus("Wachten op karakter...")
+    local t = tick()
+    repeat task.wait(0.3) until GetCharParts() or tick() - t > 15
 
-    if IsInDungeon() then
-        print("[AutoStart] Dungeon, phase:", S.Phase)
-        UpdateStatus("Run " .. S.CurrentRun .. " | Dungeon!")
+    -- Wacht tot wereld geladen is
+    WaitForWorldLoad(15)
+
+    print("[AutoStart] Phase=" .. S.Phase .. " InDungeon=" .. tostring(IsInDungeon()))
+
+    -- Keuze op basis van opgeslagen phase + werkelijke locatie
+    if S.Phase == "DUNGEON" or IsInDungeon() then
+        UpdateStatus("Dungeon! Run " .. S.CurrentRun)
         RunDungeonPhase()
     else
-        print("[AutoStart] Lobby")
+        UpdateStatus("Lobby, starten...")
         RunLobbyPhase()
     end
 end
@@ -569,12 +635,14 @@ end
 -- ==============================================================================
 Section:NewDropdown("Moeilijkheid", "Easy / Normal / Hard", {"Easy","Normal","Hard"}, function(val)
     S.Difficulty = val
+    print("[Config] Difficulty:", val)
 end)
 
 Section:NewDropdown("Aantal Runs", "Hoeveel runs", {"1","2","3","5","10","25","50","Oneindig"}, function(val)
     S.MaxRuns    = val == "Oneindig" and 0 or tonumber(val)
     S.CurrentRun = 0
     UpdateRuns(0, S.MaxRuns)
+    print("[Config] Runs:", val)
 end)
 
 Section:NewToggle("Auto Attack", "Aan/Uit", true, function(state)
@@ -605,18 +673,15 @@ ControlSection:NewButton("Party Aanmaken", "Handmatig party starten", function()
 end)
 
 -- ==============================================================================
--- BOOT
+-- BOOT — na elke (her)laad bepaalt _G.PeakEvo.Phase wat er gebeurt
 -- ==============================================================================
 UpdateStatus("Idle - Druk op START")
 UpdateRuns(S.CurrentRun, S.MaxRuns)
 
 if S.Running then
-    print("[Boot] Hervat na teleport - Phase:", S.Phase)
-    task.spawn(AutoStart)
-elseif IsInDungeon() and S.Phase ~= "IDLE" then
-    print("[Boot] Vangnet: dungeon gevonden")
-    S.Running = true
+    -- Script herladen na teleport, hervat automatisch
+    print("[Boot] Hervatten - Phase=" .. S.Phase)
     task.spawn(AutoStart)
 else
-    print("[Boot] Fresh start")
+    print("[Boot] Fresh start, wacht op START knop")
 end
