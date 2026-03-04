@@ -611,10 +611,32 @@ local function FindAgainBtn()
         if not frame then Log("Again","Frame niet gevonden") return end
         local bg = frame:FindFirstChild("bg")
         if not bg then Log("Again","bg niet gevonden") return end
+
+        -- Plek 1: bg > againbtn direct
         local btn = bg:FindFirstChild("againbtn")
-        if not btn then Log("Again","againbtn niet gevonden") return end
-        Log("Again","againbtn gevonden | Visible="..tostring(btn.Visible))
-        if btn.Visible then found = btn end
+        if btn then
+            Log("Again","againbtn in bg | Visible="..tostring(btn.Visible))
+            if btn.Visible then found = btn return end
+        end
+
+        -- Plek 2: bg > againFrame > againbtn
+        local againFrame = bg:FindFirstChild("againFrame")
+        if againFrame then
+            local btn2 = againFrame:FindFirstChild("againbtn")
+            if btn2 then
+                Log("Again","againbtn in againFrame | Visible="..tostring(btn2.Visible))
+                if btn2.Visible then found = btn2 return end
+            end
+        end
+
+        -- Plek 3: deep search fallback
+        local btn3 = bg:FindFirstChild("againbtn", true)
+        if btn3 then
+            Log("Again","againbtn deep | Visible="..tostring(btn3.Visible))
+            if btn3.Visible then found = btn3 end
+        else
+            Log("Again","againbtn nergens gevonden")
+        end
     end)
     return found
 end
