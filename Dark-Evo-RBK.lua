@@ -7,7 +7,6 @@ local Players             = game:GetService("Players")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local VirtualUser         = game:GetService("VirtualUser")
 local TweenService        = game:GetService("TweenService")
-local TeleportService     = game:GetService("TeleportService")
 local RunService          = game:GetService("RunService")
 local Workspace           = game.Workspace
 local LocalPlayer         = Players.LocalPlayer
@@ -18,67 +17,61 @@ local function Warn(m,t) warn("[PeakEvo]["..m.."] "..tostring(t))  end
 
 -- ==============================================================================
 -- AUTO-HERSTART NA TELEPORT
--- Geen HttpGet bij opstart - alleen listener registreren.
--- Script herlaadt zichzelf via _G._PeakEvoURL na teleport.
--- Gebruik in executor: _G._PeakEvoURL = "jouw_url" dan loadstring(game:HttpGet(...))()
+-- Werkt via een persistente watcher-loop die in _G leeft.
+-- Controleer elke 2s of de GUI nog bestaat. Zo niet = teleport geweest,
+-- herlaad het script automatisch.
+--
+-- Gebruik in executor (1x uitvoeren):
+--   _G._PeakEvoURL = "https://raw.githubusercontent.com/..."
+--   loadstring(game:HttpGet(_G._PeakEvoURL))()
 -- ==============================================================================
--- Herlaad het script via URL (gebruikt door beide methodes hieronder)
-local function ReloadScript(reason)
-    local url = _G._PeakEvoURL
-    if not url or url == "" then
-        Warn("AutoRestart", "Geen _G._PeakEvoURL - stel in via: _G._PeakEvoURL = 'jouw_url'")
-        return
-    end
-    Log("AutoRestart", "Herladen ("..reason..") via URL...")
-    task.wait(3)
-    local ok, result = pcall(function()
-        local src = game:HttpGet(url)
-        local fn, err = loadstring(src)
-        if fn then task.spawn(fn)
-        else Warn("AutoRestart", "loadstring fout: "..tostring(err)) end
-    end)
-    if not ok then Warn("AutoRestart", "HttpGet fout: "..tostring(result)) end
-end
-
--- Methode 1: TeleportService (werkt in sommige executors)
-if not _G._PeakTeleportConn then
-    _G._PeakTeleportConn = TeleportService.LocalPlayerArrivedFromTeleport:Connect(function()
-        Log("AutoRestart", "LocalPlayerArrivedFromTeleport gevangen")
-        ReloadScript("TeleportService")
-    end)
-    Log("AutoRestart", "TeleportService-listener actief")
-end
-
--- Methode 2: CharacterAdded - vangt teleports op die methode 1 mist.
--- Slaat PlaceId op en herlaadt als die verandert of als dungeon gedetecteerd wordt.
-if not _G._PeakCharConn then
-    local lastPlaceId = game.PlaceId
-    _G._PeakCharConn = LocalPlayer.CharacterAdded:Connect(function()
-        task.wait(1)
-        local newPlaceId = game.PlaceId
-        Log("AutoRestart", "CharacterAdded | PlaceId: "..tostring(lastPlaceId).." -> "..tostring(newPlaceId))
-        if newPlaceId ~= lastPlaceId then
-            lastPlaceId = newPlaceId
-            Log("AutoRestart", "Andere place gedetecteerd via CharacterAdded")
-            ReloadScript("CharacterAdded+PlaceChange")
-        else
-            lastPlaceId = newPlaceId
-            task.wait(2)
-            local ok, inDungeon = pcall(function()
-                local s = Workspace:FindFirstChild("Stage") if not s then return false end
-                if s:FindFirstChild("baseStage") then return false end
-                for _,c in pairs(s:GetChildren()) do
-                    if string.sub(c.Name,1,3)=="map" then return true end
-                end
-                return false
+if not _G._PeakWatcherActive then
+    _G._PeakWatcherActive = true
+    task.spawn(function()
+        print("[PeakEvo][Watcher] Gestart")
+        while task.wait(2) do
+            -- Stop watcher als URL niet ingesteld is
+            local url = _G._PeakEvoURL
+            if not url or url == "" then
+                print("[PeakEvo][Watcher] Geen URL, watcher gestopt")
+                _G._PeakWatcherActive = false
+                return
+            end
+            -- Check of GUI nog bestaat
+            local guiOk = false
+            pcall(function()
+                local lp = game:GetService("Players").LocalPlayer
+                local pg = lp and lp:FindFirstChild("PlayerGui")
+                guiOk = pg and pg:FindFirstChild("PeakEvoGui") ~= nil
             end)
-            if ok and inDungeon then
-                Log("AutoRestart", "Dungeon gedetecteerd via CharacterAdded")
-                ReloadScript("CharacterAdded+Dungeon")
+            if not guiOk then
+                print("[PeakEvo][Watcher] GUI weg, wacht op karakter...")
+                -- Wacht op LocalPlayer + Character (max 30s)
+                local deadline = tick() + 30
+                repeat
+                    task.wait(1)
+                until tick() > deadline or pcall(function()
+                    local lp = game:GetService("Players").LocalPlayer
+                    assert(lp and lp.Character)
+                end)
+                task.wait(2) -- extra wacht voor wereld laden
+                print("[PeakEvo][Watcher] Herladen via URL...")
+                local ok, err = pcall(function()
+                    local src = game:HttpGet(url)
+                    local fn, lerr = loadstring(src)
+                    if fn then
+                        task.spawn(fn)
+                    else
+                        warn("[PeakEvo][Watcher] loadstring fout: "..tostring(lerr))
+                    end
+                end)
+                if not ok then
+                    warn("[PeakEvo][Watcher] HttpGet fout: "..tostring(err))
+                end
+                task.wait(6) -- wacht zodat de nieuwe GUI tijd heeft om te laden
             end
         end
     end)
-    Log("AutoRestart", "CharacterAdded-listener actief")
 end
 
 -- ==============================================================================
