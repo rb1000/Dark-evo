@@ -213,8 +213,8 @@ local function MkTBBtn(xOffset, bgColor, symbol)
     return btn
 end
 
-local BtnClose    = MkTBBtn(-10,  Color3.fromRGB(190,50,55),  "✕")
-local BtnMinimize = MkTBBtn(-36,  Color3.fromRGB(50,50,75),   "─")
+local BtnClose    = MkTBBtn(-30,  Color3.fromRGB(190,50,55),  "✕")
+local BtnMinimize = MkTBBtn(-56,  Color3.fromRGB(50,50,75),   "─")
 
 -- F8 hint label
 local F8Hint = Instance.new("TextLabel")
@@ -430,10 +430,9 @@ local VL = StatBox("⌛","Timer",  1, 3, STAT_Y)
 Div(294)
 
 -- KNOPPEN rij
-local BtnStart  = Btn("▶  START",  10,  298, 88, COLORS.GREEN)
-local BtnStop   = Btn("■  STOP",   102, 298, 82, COLORS.RED)
-local BtnParty  = Btn("⚑ PARTY",  188, 298, 74, COLORS.PURPLE)
-local BtnTPTest = Btn("⊕ TP",     266, 298, 34, Color3.fromRGB(40,60,100))
+local BtnStart  = Btn("▶  START",  10,  298, 92, COLORS.GREEN)
+local BtnStop   = Btn("■  STOP",   106, 298, 88, COLORS.RED)
+local BtnParty  = Btn("⚑  PARTY", 198, 298, 102, COLORS.PURPLE)
 
 Div(332)
 
@@ -1208,80 +1207,6 @@ end)
 
 BtnParty.MouseButton1Click:Connect(function()
     if not S.Running then task.spawn(TryCreateParty) end
-end)
-
--- ==============================================================================
--- TP BOSS TEST
--- ==============================================================================
-local _tpTestRunning = false
-
-local function TPBossTest()
-    if _tpTestRunning then US("TP Test al bezig!") return end
-    _tpTestRunning = true
-    US("TP Test: teleporteren...")
-    Log("TPTest","Start")
-
-    local char, hum, root = GetChar()
-    if not char or not root then
-        Warn("TPTest","Geen karakter gevonden")
-        _tpTestRunning = false
-        return
-    end
-
-    pcall(function()
-        root.CFrame = CFrame.new(DungeonEnd)
-    end)
-    task.wait(0.5)
-
-    US("TP Test: boss aanvallen...")
-    Log("TPTest","Aanvallen gestart")
-
-    local attackTimeout = tick() + 60
-    local hitCount = 0
-
-    while tick() < attackTimeout do
-        char, hum, root = GetChar()
-        if not char then break end
-
-        local enemy = FindEnemy()
-        if not enemy then
-            Log("TPTest","Geen mobs meer in range - mogelijk dood")
-            break
-        end
-
-        Attack(enemy)
-        if _G._PeakDashEnabled ~= false then TryDash() end
-        hitCount += 1
-
-        pcall(function()
-            local er = enemy:FindFirstChild("HumanoidRootPart")
-            if er then hum:MoveTo(er.Position) end
-        end)
-
-        if IsEndScreenVisible() then
-            Log("TPTest","✓ EINDSCHERM ZICHTBAAR na "..hitCount.." hits!")
-            US("TP Test: SUCCESS! ✓")
-            _tpTestRunning = false
-            return
-        end
-
-        task.wait(0.15)
-    end
-
-    task.wait(1)
-    if IsEndScreenVisible() then
-        Log("TPTest","✓ EINDSCHERM ZICHTBAAR (na wacht)")
-        US("TP Test: SUCCESS! ✓")
-    else
-        Warn("TPTest","✗ Eindscherm NIET gevonden na "..hitCount.." hits")
-        US("TP Test: MISLUKT ✗")
-    end
-
-    _tpTestRunning = false
-end
-
-BtnTPTest.MouseButton1Click:Connect(function()
-    task.spawn(TPBossTest)
 end)
 
 -- ==============================================================================
