@@ -52,22 +52,59 @@ end
 -- ==============================================================================
 -- STATE
 -- ==============================================================================
-local function SaveState(s) _G.PeakEvo = s shared.PeakEvo = s end
+local SAVE_FILE = "peakevo_state.json"
+
+local function SaveState(s)
+    _G.PeakEvo = s
+    shared.PeakEvo = s
+    -- Sla lifetime stats op in bestand zodat ze teleport overleven
+    pcall(function()
+        local data = {
+            TotalKills   = s.TotalKills   or 0,
+            TotalRuns    = s.TotalRuns    or 0,
+            TotalTimeSec = s.TotalTimeSec or 0,
+            BestTime     = s.BestTime     or nil,
+        }
+        writefile(SAVE_FILE, game:GetService("HttpService"):JSONEncode(data))
+    end)
+end
+
 local function LoadState()
+    -- Probeer eerst _G / shared (zelfde sessie, geen teleport)
     if type(_G.PeakEvo)=="table" and _G.PeakEvo.Phase then
         Log("State","_G | Phase=".._G.PeakEvo.Phase.." Run=".._G.PeakEvo.CurrentRun)
         return _G.PeakEvo
     end
     if type(shared.PeakEvo)=="table" and shared.PeakEvo.Phase then
         Log("State","shared | Phase="..shared.PeakEvo.Phase)
-        _G.PeakEvo = shared.PeakEvo return shared.PeakEvo
+        _G.PeakEvo = shared.PeakEvo
+        return shared.PeakEvo
     end
-    Log("State","Nieuw aangemaakt")
-    return {Running=false,AutoAttack=true,AttackRange=45,Difficulty="Easy",
-            MaxRuns=0,CurrentRun=0,Phase="IDLE",DoorWait=10,
-            TotalKills=0,BestTime=nil,RunStart=0,
-            TotalRuns=0,TotalTimeSec=0,
-            SessionKills=0,SessionRuns=0}  -- per sessie tellers (resetten bij START)
+
+    -- Basis state
+    local s = {Running=false, AutoAttack=true, AttackRange=45, Difficulty="Easy",
+               MaxRuns=0, CurrentRun=0, Phase="IDLE", DoorWait=10,
+               TotalKills=0, BestTime=nil, RunStart=0,
+               TotalRuns=0, TotalTimeSec=0,
+               SessionKills=0, SessionRuns=0}
+
+    -- Lifetime stats uit bestand laden (overleeft teleport)
+    pcall(function()
+        if isfile(SAVE_FILE) then
+            local ok, data = pcall(function()
+                return game:GetService("HttpService"):JSONDecode(readfile(SAVE_FILE))
+            end)
+            if ok and type(data) == "table" then
+                s.TotalKills   = data.TotalKills   or 0
+                s.TotalRuns    = data.TotalRuns    or 0
+                s.TotalTimeSec = data.TotalTimeSec or 0
+                s.BestTime     = data.BestTime     or nil
+                Log("State","Bestand geladen | Runs="..s.TotalRuns.." Kills="..s.TotalKills)
+            end
+        end
+    end)
+
+    return s
 end
 
 local S = LoadState()
