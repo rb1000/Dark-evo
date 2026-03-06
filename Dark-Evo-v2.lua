@@ -107,7 +107,7 @@ Screen.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
 Screen.Parent=LocalPlayer.PlayerGui
 
 local Main = Instance.new("Frame")
-Main.Name="Main" Main.Size=UDim2.new(0,300,0,370)
+Main.Name="Main" Main.Size=UDim2.new(0,300,0,340)
 Main.Position=UDim2.new(0,16,0.5,-183)
 Main.BackgroundColor3=Color3.fromRGB(18,18,22)
 Main.BorderSizePixel=0 Main.Active=true Main.Draggable=true Main.Parent=Screen
@@ -251,8 +251,6 @@ Div(278)
 local BtnStart = Btn("[START]", 10,  282, 84, Color3.fromRGB(55,150,80))
 local BtnStop  = Btn("[STOP]",  108, 282, 84, Color3.fromRGB(170,55,55))
 local BtnParty = Btn("[Party]", 206, 282, 84, Color3.fromRGB(90,70,150))
-Div(312)
-local BtnTPTest = Btn("[TP Boss Test]", 10, 318, 280, Color3.fromRGB(180,120,30))
 
 local FaseKleur={IDLE=Color3.fromRGB(120,120,140),LOBBY=Color3.fromRGB(100,180,255),PARTY=Color3.fromRGB(255,200,80),DUNGEON=Color3.fromRGB(80,220,120)}
 
@@ -864,26 +862,26 @@ local function RunLobbyPhase()
     WaitForWorldLoad(15) if not S.Running then return end
     US("Lobby route...")
 
-    local _,hum,_=GetChar()
-    if not hum then S.Running=false SaveState(S) return end
+    local _, hum, root = GetChar()
+    if not hum or not root then S.Running=false SaveState(S) return end
 
-    -- Bepaal slim startpunt: ga naar het dichtstbijzijnde waypoint
     local startIdx = FindNearestRouteIndex(LobbyRoute)
     Log("Lobby","Route start bij waypoint "..startIdx.." van "..#LobbyRoute)
 
     if startIdx <= #LobbyRoute then
         for i = startIdx, #LobbyRoute do
             if not S.Running then return end
+
             local step = LobbyRoute[i]
-            Log("Lobby","Stap "..i)
+            Log("Lobby","Stap "..i.." | TP naar "..tostring(step.Pos))
             US("Lobby stap "..i.."/"..#LobbyRoute)
+
+            -- Directe TP in rechte lijn, geen muur problemen
             pcall(function()
-                hum:MoveTo(step.Pos)
-                local t=tick() local done=false
-                local conn=hum.MoveToFinished:Connect(function() done=true end)
-                while not done and tick()-t<6 do task.wait(0.1) end
-                pcall(function() conn:Disconnect() end)
+                root.CFrame = CFrame.new(step.Pos)
             end)
+            task.wait(0.1)
+            TryDash()
             task.wait(0.1)
         end
     else
@@ -893,7 +891,7 @@ local function RunLobbyPhase()
 
     if not S.Running then return end
     UP("PARTY") US("Party aanmaken...")
-    local ok=TryCreateParty()
+    local ok = TryCreateParty()
     if not ok then
         Warn("Lobby","Party mislukt") US("Party mislukt")
         S.Running=false SaveState(S) UP("IDLE")
