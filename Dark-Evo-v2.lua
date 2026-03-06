@@ -66,7 +66,8 @@ local function LoadState()
     return {Running=false,AutoAttack=true,AttackRange=45,Difficulty="Easy",
             MaxRuns=0,CurrentRun=0,Phase="IDLE",DoorWait=12,
             TotalKills=0,BestTime=nil,RunStart=0,
-            TotalRuns=0,TotalTimeSec=0}
+            TotalRuns=0,TotalTimeSec=0,
+            SessionKills=0,SessionRuns=0}  -- per sessie tellers (resetten bij START)
 end
 
 local S = LoadState()
@@ -500,7 +501,12 @@ local function UE(a,t)
 end
 
 local function UK()
-    pcall(function() VK.Text=tostring(S.TotalKills) end)
+    -- Kills box: sessie kills (en lifetime tussen haakjes)
+    pcall(function()
+        local sess = S.SessionKills or 0
+        local total = S.TotalKills or 0
+        VK.Text = sess .. " (" .. total .. ")"
+    end)
 end
 
 local function UT(s)
@@ -518,10 +524,10 @@ end
 
 local function UpdateSessionBar()
     pcall(function()
-        local totalMin = math.floor((S.TotalTimeSec or 0) / 60)
+        local sessMin = math.floor((S.TotalTimeSec or 0) / 60)
         SessionLabel.Text = string.format(
-            "Sessie: %d runs  ·  %d kills  ·  %dm totaal",
-            S.TotalRuns or 0, S.TotalKills or 0, totalMin
+            "Lifetime: %d runs  ·  %d kills  ·  %dm",
+            S.TotalRuns or 0, S.TotalKills or 0, sessMin
         )
     end)
 end
@@ -530,17 +536,21 @@ end
 -- LIVE TIMER
 -- ==============================================================================
 local timerConn = nil
+local _localRunStart = 0  -- lokaal bijhouden, niet via state (tick() reset na teleport)
+
 local function StartLiveTimer()
     if timerConn then pcall(function() timerConn:Disconnect() end) timerConn=nil end
-    S.RunStart = tick()
+    _localRunStart = tick()
+    S.RunStart = _localRunStart
+    SaveState(S)
     timerConn = RunService.Heartbeat:Connect(function()
         if not S.Running or S.Phase ~= "DUNGEON" then
             pcall(function() timerConn:Disconnect() end)
             timerConn = nil
             return
         end
-        local e = math.floor(tick()-S.RunStart)
-        UL(string.format("%d:%02d",math.floor(e/60),e%60))
+        local e = math.floor(tick() - _localRunStart)
+        UL(string.format("%d:%02d", math.floor(e/60), e%60))
     end)
 end
 
@@ -842,7 +852,6 @@ local function Walk(targetPos)
 
     local stuckT=0 local lastPos=root.Position
     local timeout=tick()+300 local lastEL=tick()
-    local _,totalStart=CountEnemies() local killsBefore=0
 
     while tick()<timeout do
         if not S.Running then pcall(function() hum:MoveTo(root.Position) end) return end
@@ -867,8 +876,6 @@ local function Walk(targetPos)
 
         if tick()-lastEL>2 then
             local alive,total=CountEnemies() UE(alive,total)
-            local nk=totalStart-alive
-            if nk>killsBefore then S.TotalKills=S.TotalKills+(nk-killsBefore) killsBefore=nk UK() end
             lastEL=tick()
         end
 
@@ -990,13 +997,14 @@ local function ClearDungeon()
             local _, playerHum, root = GetChar()
             if not root or not playerHum then return end
 
+            -- Teleport naast mob
             pcall(function()
                 root.CFrame = CFrame.new(er.Position + Vector3.new(2, 0, 0))
             end)
             task.wait(0.1)
 
+            -- Aanvallen tot dood - GEEN vroege break meer
             local combatTimeout = time() + 20
-            local healthBefore = hum.Health
             repeat
                 if not S.Running then return end
                 if IsEndScreenVisible() then return end
@@ -1010,21 +1018,39 @@ local function ClearDungeon()
                 Attack(mob)
                 task.wait(0.15)
 
-                if hum.Health < healthBefore then
-                    break
-                end
-
-            until not mob or not mob.Parent
-                or not hum or hum.Health <= 0
+            until (not mob or not mob.Parent)
+                or (not hum or hum.Health <= 0)
                 or time() > combatTimeout
 
+            -- Kill tellen alleen als mob echt Health <= 0
             if hum and hum.Health <= 0 then
-                S.TotalKills += 1
+                S.TotalKills = (S.TotalKills or 0) + 1
+                S.SessionKills = (S.SessionKills or 0) + 1
                 SaveState(S)
                 UK()
-                UpdateSessionBar()
-                Log("Dungeon","Mob gekild | Totaal: " .. S.TotalKills)
+                Log("Dungeon","Mob gekild | Sessie: "..S.SessionKills.." | Totaal: "..S.TotalKills)
             end
+
+            -- Live enemy teller updaten na elke mob
+            local stillAlive = 0
+            pcall(function()
+                local st = Workspace:FindFirstChild("Stage") if not st then return end
+                for _, map in pairs(st:GetChildren()) do
+                    if map.Name ~= "baseStage" then
+                        local f = map:FindFirstChild("monster") or map:FindFirstChild("Enemies")
+                        if f then
+                            for _, m in pairs(f:GetChildren()) do
+                                pcall(function()
+                                    local h = m:FindFirstChild("Humanoid")
+                                    if h and h.Health > 0 then stillAlive += 1 end
+                                end)
+                            end
+                        end
+                    end
+                end
+            end)
+            UE(stillAlive, totalMobsAtStart)
+            UpdateSessionBar()
 
             task.wait(0.05)
         end
@@ -1063,7 +1089,8 @@ local function RunDungeonPhase()
     end
 
     StopLiveTimer()
-    local elapsed=math.floor(tick()-S.RunStart)
+    local elapsed = math.floor(tick() - _localRunStart)
+    if elapsed <= 0 then elapsed = 1 end  -- fallback als timer niet gestart was
     local timeStr=string.format("%d:%02d",math.floor(elapsed/60),elapsed%60)
     UT(timeStr) Log("Dungeon","Run tijd: "..timeStr)
     if not S.BestTime or elapsed<S.BestTime then
@@ -1072,8 +1099,10 @@ local function RunDungeonPhase()
     end
 
     S.TotalRuns = (S.TotalRuns or 0) + 1
+    S.SessionRuns = (S.SessionRuns or 0) + 1
     S.TotalTimeSec = (S.TotalTimeSec or 0) + elapsed
-    S.CurrentRun+=1 SaveState(S) UR()
+    S.CurrentRun += 1
+    SaveState(S) UR()
     UpdateSessionBar()
 
     local totalTimeStr = string.format("%dh %dm",
@@ -1186,14 +1215,20 @@ end
 -- ==============================================================================
 BtnStart.MouseButton1Click:Connect(function()
     if S.Running then US("Al bezig!") return end
-    S.Running=true S.CurrentRun=0 S.TotalKills=0
+    -- Sessie tellers resetten
+    S.Running=true
+    S.CurrentRun=0
+    S.SessionKills=0
+    S.SessionRuns=0
+    -- Lifetime totals NIET resetten: TotalRuns, TotalTimeSec, TotalKills, BestTime
     if not S.TotalRuns then S.TotalRuns=0 end
     if not S.TotalTimeSec then S.TotalTimeSec=0 end
+    if not S.TotalKills then S.TotalKills=0 end
     SaveState(S) UP("LOBBY")
     UR() UK() UE(nil,nil) UT(nil) UL(nil)
     UpdateStatusDot(true)
     UpdateSessionBar()
-    Log("Control","START | TotalRuns tot nu: "..S.TotalRuns)
+    Log("Control","START | Lifetime runs: "..S.TotalRuns.." kills: "..S.TotalKills)
     task.spawn(AutoStart)
 end)
 
