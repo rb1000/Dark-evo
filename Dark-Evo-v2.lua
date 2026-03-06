@@ -64,7 +64,7 @@ local function LoadState()
     end
     Log("State","Nieuw aangemaakt")
     return {Running=false,AutoAttack=true,AttackRange=45,Difficulty="Easy",
-            MaxRuns=0,CurrentRun=0,Phase="IDLE",DoorWait=12,
+            MaxRuns=0,CurrentRun=0,Phase="IDLE",DoorWait=10,
             TotalKills=0,BestTime=nil,RunStart=0,
             TotalRuns=0,TotalTimeSec=0,
             SessionKills=0,SessionRuns=0}  -- per sessie tellers (resetten bij START)
@@ -406,7 +406,7 @@ DD("Difficulty",{"Easy","Normal","Hard"},S.Difficulty, 22, function(v) S.Difficu
 DD("Runs",{"1","2","3","5","10","25","50","Oneindig"},"Oneindig", 52, function(v)
     S.MaxRuns=v=="Oneindig" and 0 or tonumber(v) S.CurrentRun=0 SaveState(S)
 end)
-DD("Deur wacht",{"8","10","12","15","20"},"12", 82, function(v) S.DoorWait=tonumber(v) end)
+DD("Deur wacht",{"8","10","12","15","20"},"10",82, function(v) S.DoorWait=tonumber(v) end)
 TG("Auto Attack", S.AutoAttack, 112, function(v) S.AutoAttack=v end)
 TG("Auto Dash (F)", true, 142, function(v)
     -- Dash in/uitschakelen
@@ -536,12 +536,12 @@ end
 -- LIVE TIMER
 -- ==============================================================================
 local timerConn = nil
-local _localRunStart = 0  -- lokaal bijhouden, niet via state (tick() reset na teleport)
+local _localRunStart = 0
 
 local function StartLiveTimer()
     if timerConn then pcall(function() timerConn:Disconnect() end) timerConn=nil end
     _localRunStart = tick()
-    S.RunStart = _localRunStart
+    S.RunStart = os.time()  -- os.time() overleeft teleport, tick() niet
     SaveState(S)
     timerConn = RunService.Heartbeat:Connect(function()
         if not S.Running or S.Phase ~= "DUNGEON" then
@@ -1003,14 +1003,16 @@ local function ClearDungeon()
             end)
             task.wait(0.1)
 
-            -- Aanvallen tot dood - GEEN vroege break meer
+            -- Aanvallen tot dood
             local combatTimeout = time() + 20
+            local mobDead = false
             repeat
                 if not S.Running then return end
                 if IsEndScreenVisible() then return end
                 _, playerHum, root = GetChar()
                 if not root then return end
 
+                -- Blijf op mob positie
                 pcall(function()
                     root.CFrame = CFrame.new(er.Position + Vector3.new(2, 0, 0))
                 end)
@@ -1018,17 +1020,29 @@ local function ClearDungeon()
                 Attack(mob)
                 task.wait(0.15)
 
-            until (not mob or not mob.Parent)
-                or (not hum or hum.Health <= 0)
-                or time() > combatTimeout
+                -- Check dood: mob uit workspace OF health 0
+                local stillExists = mob and mob.Parent ~= nil
+                if not stillExists then
+                    mobDead = true
+                    break
+                end
+                local h2 = mob:FindFirstChild("Humanoid")
+                if not h2 or h2.Health <= 0 then
+                    mobDead = true
+                    break
+                end
 
-            -- Kill tellen alleen als mob echt Health <= 0
-            if hum and hum.Health <= 0 then
+            until time() > combatTimeout
+
+            -- Kill tellen
+            if mobDead then
                 S.TotalKills = (S.TotalKills or 0) + 1
                 S.SessionKills = (S.SessionKills or 0) + 1
                 SaveState(S)
                 UK()
                 Log("Dungeon","Mob gekild | Sessie: "..S.SessionKills.." | Totaal: "..S.TotalKills)
+            else
+                Log("Dungeon","Mob combat timeout, volgende")
             end
 
             -- Live enemy teller updaten na elke mob
@@ -1089,8 +1103,10 @@ local function RunDungeonPhase()
     end
 
     StopLiveTimer()
-    local elapsed = math.floor(tick() - _localRunStart)
-    if elapsed <= 0 then elapsed = 1 end  -- fallback als timer niet gestart was
+    -- os.time() overleeft teleport, tick() niet
+    local elapsed = os.time() - (S.RunStart or os.time())
+    if elapsed <= 0 or elapsed > 3600 then elapsed = math.floor(tick() - _localRunStart) end
+    if elapsed <= 0 then elapsed = 1 end
     local timeStr=string.format("%d:%02d",math.floor(elapsed/60),elapsed%60)
     UT(timeStr) Log("Dungeon","Run tijd: "..timeStr)
     if not S.BestTime or elapsed<S.BestTime then
