@@ -1,6 +1,6 @@
 -- ============================================================
 -- Peak Evo - RB1000 | Stable Build voor Velocity
--- v2.2 - F-dash spam, persistente runs/kills/tijd
+-- v2.3 - Minimize/Close/F8-Toggle + GUI Upgrade
 -- ============================================================
 
 local Players             = game:GetService("Players")
@@ -8,6 +8,7 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 local VirtualUser         = game:GetService("VirtualUser")
 local TweenService        = game:GetService("TweenService")
 local RunService          = game:GetService("RunService")
+local UserInputService    = game:GetService("UserInputService")
 local Workspace           = game.Workspace
 local LocalPlayer         = Players.LocalPlayer
 if not LocalPlayer then warn("[PeakEvo] Geen LocalPlayer!") return end
@@ -65,7 +66,7 @@ local function LoadState()
     return {Running=false,AutoAttack=true,AttackRange=45,Difficulty="Easy",
             MaxRuns=0,CurrentRun=0,Phase="IDLE",DoorWait=12,
             TotalKills=0,BestTime=nil,RunStart=0,
-            TotalRuns=0,TotalTimeSec=0}   -- TotalRuns + TotalTime overleven teleports
+            TotalRuns=0,TotalTimeSec=0}
 end
 
 local S = LoadState()
@@ -77,11 +78,9 @@ Log("Boot","Running="..tostring(S.Running).." Phase="..S.Phase.." Run="..S.Curre
 
 -- ==============================================================================
 -- F-DASH LOOP
--- Simuleert de F-toets (dash ability) elke 2 seconden tijdens het lopen.
--- Werkt alleen als S.Running actief is.
 -- ==============================================================================
 local _lastDash = 0
-local DASH_INTERVAL = 2.05   -- iets meer dan 2s cooldown van het spel
+local DASH_INTERVAL = 2.05
 
 local function TryDash()
     if tick() - _lastDash < DASH_INTERVAL then return end
@@ -94,71 +93,232 @@ local function TryDash()
 end
 
 -- ==============================================================================
--- GUI
+-- GUI SETUP
 -- ==============================================================================
 pcall(function()
     local old = LocalPlayer.PlayerGui:FindFirstChild("PeakEvoGui")
     if old then old:Destroy() end
 end)
 
+local GUI_WIDTH  = 310
+local GUI_HEIGHT = 390  -- uitgebreider dan v2.2
+
+local COLORS = {
+    BG        = Color3.fromRGB(13, 13, 18),
+    BG2       = Color3.fromRGB(20, 20, 28),
+    BG3       = Color3.fromRGB(28, 28, 40),
+    ACCENT    = Color3.fromRGB(82, 130, 255),
+    ACCENT2   = Color3.fromRGB(120, 80, 255),
+    GREEN     = Color3.fromRGB(55, 190, 100),
+    RED       = Color3.fromRGB(210, 55, 65),
+    ORANGE    = Color3.fromRGB(220, 140, 40),
+    PURPLE    = Color3.fromRGB(110, 70, 200),
+    TEXT      = Color3.fromRGB(220, 220, 255),
+    TEXTDIM   = Color3.fromRGB(110, 110, 150),
+    DIV       = Color3.fromRGB(35, 35, 52),
+    STATBG    = Color3.fromRGB(18, 18, 28),
+}
+
 local Screen = Instance.new("ScreenGui")
 Screen.Name="PeakEvoGui" Screen.ResetOnSpawn=false
 Screen.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
 Screen.Parent=LocalPlayer.PlayerGui
 
-local Main = Instance.new("Frame")
-Main.Name="Main" Main.Size=UDim2.new(0,300,0,340)
-Main.Position=UDim2.new(0,16,0.5,-183)
-Main.BackgroundColor3=Color3.fromRGB(18,18,22)
-Main.BorderSizePixel=0 Main.Active=true Main.Draggable=true Main.Parent=Screen
-Instance.new("UICorner",Main).CornerRadius=UDim.new(0,8)
+-- Achtergrond frame (shadow effect)
+local Shadow = Instance.new("Frame")
+Shadow.Name="Shadow" Shadow.Size=UDim2.new(0,GUI_WIDTH+8,0,GUI_HEIGHT+8)
+Shadow.Position=UDim2.new(0,12,0.5,-GUI_HEIGHT/2-4)
+Shadow.BackgroundColor3=Color3.fromRGB(0,0,0)
+Shadow.BackgroundTransparency=0.6 Shadow.BorderSizePixel=0 Shadow.Parent=Screen
+Instance.new("UICorner",Shadow).CornerRadius=UDim.new(0,12)
 
-local TB=Instance.new("Frame")
-TB.Size=UDim2.new(1,0,0,32) TB.BackgroundColor3=Color3.fromRGB(26,26,32)
+local Main = Instance.new("Frame")
+Main.Name="Main" Main.Size=UDim2.new(0,GUI_WIDTH,0,GUI_HEIGHT)
+Main.Position=UDim2.new(0,16,0.5,-GUI_HEIGHT/2)
+Main.BackgroundColor3=COLORS.BG
+Main.BorderSizePixel=0 Main.Active=true Main.Draggable=true Main.Parent=Screen
+Instance.new("UICorner",Main).CornerRadius=UDim.new(0,10)
+
+-- Gradient achtergrond accent
+local BgGrad = Instance.new("UIGradient")
+BgGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(18,18,30)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(13,13,20))
+})
+BgGrad.Rotation = 135
+BgGrad.Parent = Main
+
+-- ==============================================================================
+-- TITLE BAR
+-- ==============================================================================
+local TB = Instance.new("Frame")
+TB.Size=UDim2.new(1,0,0,36) TB.BackgroundColor3=COLORS.BG2
 TB.BorderSizePixel=0 TB.Parent=Main
-Instance.new("UICorner",TB).CornerRadius=UDim.new(0,8)
+Instance.new("UICorner",TB).CornerRadius=UDim.new(0,10)
+
+-- Fix voor afgeronde hoeken onder de titlebar
 local TFix=Instance.new("Frame")
-TFix.Size=UDim2.new(1,0,0,8) TFix.Position=UDim2.new(0,0,1,-8)
-TFix.BackgroundColor3=Color3.fromRGB(26,26,32) TFix.BorderSizePixel=0 TFix.Parent=TB
+TFix.Size=UDim2.new(1,0,0,10) TFix.Position=UDim2.new(0,0,1,-10)
+TFix.BackgroundColor3=COLORS.BG2 TFix.BorderSizePixel=0 TFix.Parent=TB
+
+-- Gekleurde accent lijn bovenaan
+local AccentLine = Instance.new("Frame")
+AccentLine.Size=UDim2.new(0.6,0,0,2) AccentLine.Position=UDim2.new(0.2,0,0,0)
+AccentLine.BackgroundColor3=COLORS.ACCENT AccentLine.BorderSizePixel=0 AccentLine.Parent=TB
+local ALGrad = Instance.new("UIGradient")
+ALGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(82,130,255)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(150,100,255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(82,130,255))
+})
+ALGrad.Parent = AccentLine
+Instance.new("UICorner",AccentLine).CornerRadius=UDim.new(0,1)
+
+-- Status indicator bolletje
+local StatusDot = Instance.new("Frame")
+StatusDot.Size=UDim2.new(0,8,0,8) StatusDot.Position=UDim2.new(0,12,0.5,-4)
+StatusDot.BackgroundColor3=Color3.fromRGB(60,60,80) StatusDot.BorderSizePixel=0 StatusDot.Parent=TB
+Instance.new("UICorner",StatusDot).CornerRadius=UDim.new(1,0)
 
 local TL=Instance.new("TextLabel")
-TL.Size=UDim2.new(1,-12,1,0) TL.Position=UDim2.new(0,12,0,0)
-TL.BackgroundTransparency=1 TL.Text=">> Peak Evo - RB1000"
-TL.TextColor3=Color3.fromRGB(220,220,255) TL.TextSize=13
+TL.Size=UDim2.new(1,-100,1,0) TL.Position=UDim2.new(0,26,0,0)
+TL.BackgroundTransparency=1 TL.Text="PEAK EVO  ·  RB1000"
+TL.TextColor3=COLORS.TEXT TL.TextSize=12
 TL.Font=Enum.Font.GothamBold TL.TextXAlignment=Enum.TextXAlignment.Left TL.Parent=TB
 
-local function Hdr(txt,y)
+local VerLabel = Instance.new("TextLabel")
+VerLabel.Size=UDim2.new(0,28,0,14) VerLabel.Position=UDim2.new(0,26,0,21)
+VerLabel.BackgroundColor3=Color3.fromRGB(40,40,60) VerLabel.BorderSizePixel=0
+VerLabel.Text="v2.3" VerLabel.TextColor3=COLORS.TEXTDIM VerLabel.TextSize=8
+VerLabel.Font=Enum.Font.GothamBold VerLabel.Parent=TB
+Instance.new("UICorner",VerLabel).CornerRadius=UDim.new(0,3)
+
+-- ==============================================================================
+-- TITLEBAR KNOPPEN: MINIMIZE & CLOSE
+-- ==============================================================================
+local function MkTBBtn(xOffset, bgColor, symbol)
+    local btn = Instance.new("TextButton")
+    btn.Size=UDim2.new(0,22,0,22) btn.Position=UDim2.new(1,xOffset,0.5,-11)
+    btn.BackgroundColor3=bgColor btn.BorderSizePixel=0
+    btn.Text=symbol btn.TextColor3=Color3.fromRGB(220,220,255) btn.TextSize=13
+    btn.Font=Enum.Font.GothamBold btn.AutoButtonColor=false btn.Parent=TB
+    Instance.new("UICorner",btn).CornerRadius=UDim.new(0,6)
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn,TweenInfo.new(0.1),{BackgroundColor3=bgColor:Lerp(Color3.new(1,1,1),0.2)}):Play()
+    end)
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn,TweenInfo.new(0.1),{BackgroundColor3=bgColor}):Play()
+    end)
+    return btn
+end
+
+local BtnClose    = MkTBBtn(-10,  Color3.fromRGB(190,50,55),  "✕")
+local BtnMinimize = MkTBBtn(-36,  Color3.fromRGB(50,50,75),   "─")
+
+-- F8 hint label
+local F8Hint = Instance.new("TextLabel")
+F8Hint.Size=UDim2.new(0,60,0,12) F8Hint.Position=UDim2.new(1,-106,0.5,-6)
+F8Hint.BackgroundTransparency=1 F8Hint.Text="F8 = hide"
+F8Hint.TextColor3=Color3.fromRGB(60,60,90) F8Hint.TextSize=9
+F8Hint.Font=Enum.Font.Gotham F8Hint.Parent=TB
+
+-- ==============================================================================
+-- CONTENT FRAME (alles behalve titlebar - kan minimised worden)
+-- ==============================================================================
+local Content = Instance.new("Frame")
+Content.Name="Content" Content.Size=UDim2.new(1,0,1,-36) Content.Position=UDim2.new(0,0,0,36)
+Content.BackgroundTransparency=1 Content.BorderSizePixel=0 Content.Parent=Main
+
+-- ==============================================================================
+-- MINIMIZE / CLOSE LOGICA
+-- ==============================================================================
+local isMinimized = false
+local isVisible = true
+local FULL_HEIGHT = GUI_HEIGHT
+local MINI_HEIGHT = 36
+
+local function SetGuiVisible(v)
+    isVisible = v
+    Main.Visible = v
+    Shadow.Visible = v
+end
+
+local function SetMinimized(mini)
+    isMinimized = mini
+    local targetH = mini and MINI_HEIGHT or FULL_HEIGHT
+    Content.Visible = not mini
+    TweenService:Create(Main, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+        Size = UDim2.new(0, GUI_WIDTH, 0, targetH)
+    }):Play()
+    TweenService:Create(Shadow, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+        Size = UDim2.new(0, GUI_WIDTH+8, 0, targetH+8)
+    }):Play()
+    BtnMinimize.Text = mini and "▲" or "─"
+end
+
+BtnMinimize.MouseButton1Click:Connect(function()
+    SetMinimized(not isMinimized)
+end)
+
+BtnClose.MouseButton1Click:Connect(function()
+    -- Stop alles netjes
+    S.Running = false
+    SaveState(S)
+    -- Verwijder GUI volledig
+    pcall(function()
+        local g = LocalPlayer.PlayerGui:FindFirstChild("PeakEvoGui")
+        if g then g:Destroy() end
+    end)
+    Log("GUI","Gesloten via close knop")
+end)
+
+-- ==============================================================================
+-- F8 TOGGLE ZICHTBAARHEID
+-- ==============================================================================
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.F8 then
+        SetGuiVisible(not isVisible)
+        Log("GUI", isVisible and "Zichtbaar" or "Verborgen")
+    end
+end)
+
+-- ==============================================================================
+-- GUI HELPER FUNCTIES
+-- ==============================================================================
+local function Hdr(txt, y)
     local l=Instance.new("TextLabel")
     l.Size=UDim2.new(1,-20,0,14) l.Position=UDim2.new(0,10,0,y)
     l.BackgroundTransparency=1 l.Text=txt
-    l.TextColor3=Color3.fromRGB(100,100,140) l.TextSize=10
-    l.Font=Enum.Font.GothamBold l.TextXAlignment=Enum.TextXAlignment.Left l.Parent=Main
+    l.TextColor3=COLORS.TEXTDIM l.TextSize=9
+    l.Font=Enum.Font.GothamBold l.TextXAlignment=Enum.TextXAlignment.Left l.Parent=Content
 end
 
 local function Div(y)
     local f=Instance.new("Frame")
     f.Size=UDim2.new(1,-20,0,1) f.Position=UDim2.new(0,10,0,y)
-    f.BackgroundColor3=Color3.fromRGB(40,40,55) f.BorderSizePixel=0 f.Parent=Main
+    f.BackgroundColor3=COLORS.DIV f.BorderSizePixel=0 f.Parent=Content
 end
 
 local function DD(lbl,opts,def,y,cb)
     local c=Instance.new("Frame")
-    c.Size=UDim2.new(1,-20,0,24) c.Position=UDim2.new(0,10,0,y)
-    c.BackgroundColor3=Color3.fromRGB(30,30,38) c.BorderSizePixel=0 c.Parent=Main
-    Instance.new("UICorner",c).CornerRadius=UDim.new(0,5)
+    c.Size=UDim2.new(1,-20,0,26) c.Position=UDim2.new(0,10,0,y)
+    c.BackgroundColor3=COLORS.BG3 c.BorderSizePixel=0 c.Parent=Content
+    Instance.new("UICorner",c).CornerRadius=UDim.new(0,6)
     local kl=Instance.new("TextLabel")
-    kl.Size=UDim2.new(0,90,1,0) kl.Position=UDim2.new(0,8,0,0)
-    kl.BackgroundTransparency=1 kl.Text=lbl kl.TextColor3=Color3.fromRGB(160,160,190)
+    kl.Size=UDim2.new(0,90,1,0) kl.Position=UDim2.new(0,10,0,0)
+    kl.BackgroundTransparency=1 kl.Text=lbl kl.TextColor3=COLORS.TEXTDIM
     kl.TextSize=11 kl.Font=Enum.Font.Gotham kl.TextXAlignment=Enum.TextXAlignment.Left kl.Parent=c
     local vl=Instance.new("TextLabel")
-    vl.Size=UDim2.new(0,110,1,0) vl.Position=UDim2.new(0,96,0,0)
+    vl.Size=UDim2.new(0,120,1,0) vl.Position=UDim2.new(0,98,0,0)
     vl.BackgroundTransparency=1 vl.Text=tostring(def)
-    vl.TextColor3=Color3.fromRGB(220,220,255) vl.TextSize=11
+    vl.TextColor3=COLORS.TEXT vl.TextSize=11
     vl.Font=Enum.Font.GothamBold vl.TextXAlignment=Enum.TextXAlignment.Left vl.Parent=c
+    -- Kleine pijl rechts
     local al=Instance.new("TextLabel")
-    al.Size=UDim2.new(0,18,1,0) al.Position=UDim2.new(1,-20,0,0)
-    al.BackgroundTransparency=1 al.Text=">" al.TextColor3=Color3.fromRGB(120,120,160)
-    al.TextSize=14 al.Font=Enum.Font.GothamBold al.Parent=c
+    al.Size=UDim2.new(0,20,1,0) al.Position=UDim2.new(1,-22,0,0)
+    al.BackgroundTransparency=1 al.Text="›" al.TextColor3=COLORS.ACCENT
+    al.TextSize=16 al.Font=Enum.Font.GothamBold al.Parent=c
     local idx=1
     for i,v in ipairs(opts) do if tostring(v)==tostring(def) then idx=i break end end
     local btn=Instance.new("TextButton")
@@ -170,101 +330,204 @@ end
 
 local function TG(lbl,def,y,cb)
     local c=Instance.new("Frame")
-    c.Size=UDim2.new(1,-20,0,24) c.Position=UDim2.new(0,10,0,y)
-    c.BackgroundColor3=Color3.fromRGB(30,30,38) c.BorderSizePixel=0 c.Parent=Main
-    Instance.new("UICorner",c).CornerRadius=UDim.new(0,5)
+    c.Size=UDim2.new(1,-20,0,26) c.Position=UDim2.new(0,10,0,y)
+    c.BackgroundColor3=COLORS.BG3 c.BorderSizePixel=0 c.Parent=Content
+    Instance.new("UICorner",c).CornerRadius=UDim.new(0,6)
     local kl=Instance.new("TextLabel")
-    kl.Size=UDim2.new(1,-50,1,0) kl.Position=UDim2.new(0,8,0,0)
-    kl.BackgroundTransparency=1 kl.Text=lbl kl.TextColor3=Color3.fromRGB(160,160,190)
+    kl.Size=UDim2.new(1,-50,1,0) kl.Position=UDim2.new(0,10,0,0)
+    kl.BackgroundTransparency=1 kl.Text=lbl kl.TextColor3=COLORS.TEXTDIM
     kl.TextSize=11 kl.Font=Enum.Font.Gotham kl.TextXAlignment=Enum.TextXAlignment.Left kl.Parent=c
     local st=def
     local pill=Instance.new("Frame")
-    pill.Size=UDim2.new(0,36,0,16) pill.Position=UDim2.new(1,-44,0.5,-8)
-    pill.BackgroundColor3=st and Color3.fromRGB(80,180,100) or Color3.fromRGB(60,60,80)
+    pill.Size=UDim2.new(0,38,0,18) pill.Position=UDim2.new(1,-46,0.5,-9)
+    pill.BackgroundColor3=st and COLORS.GREEN or Color3.fromRGB(50,50,70)
     pill.BorderSizePixel=0 pill.Parent=c
     Instance.new("UICorner",pill).CornerRadius=UDim.new(1,0)
     local knob=Instance.new("Frame")
-    knob.Size=UDim2.new(0,12,0,12)
-    knob.Position=st and UDim2.new(1,-14,0.5,-6) or UDim2.new(0,2,0.5,-6)
+    knob.Size=UDim2.new(0,14,0,14)
+    knob.Position=st and UDim2.new(1,-16,0.5,-7) or UDim2.new(0,2,0.5,-7)
     knob.BackgroundColor3=Color3.fromRGB(255,255,255) knob.BorderSizePixel=0 knob.Parent=pill
     Instance.new("UICorner",knob).CornerRadius=UDim.new(1,0)
     local btn=Instance.new("TextButton")
     btn.Size=UDim2.new(1,0,1,0) btn.BackgroundTransparency=1 btn.Text="" btn.Parent=c
     btn.MouseButton1Click:Connect(function()
         st=not st
-        TweenService:Create(pill,TweenInfo.new(0.15),{BackgroundColor3=st and Color3.fromRGB(80,180,100) or Color3.fromRGB(60,60,80)}):Play()
-        TweenService:Create(knob,TweenInfo.new(0.15),{Position=st and UDim2.new(1,-14,0.5,-6) or UDim2.new(0,2,0.5,-6)}):Play()
+        TweenService:Create(pill,TweenInfo.new(0.15),{BackgroundColor3=st and COLORS.GREEN or Color3.fromRGB(50,50,70)}):Play()
+        TweenService:Create(knob,TweenInfo.new(0.15),{Position=st and UDim2.new(1,-16,0.5,-7) or UDim2.new(0,2,0.5,-7)}):Play()
         cb(st)
     end)
 end
 
 local function Btn(txt,x,y,w,col)
     local b=Instance.new("TextButton")
-    b.Size=UDim2.new(0,w,0,26) b.Position=UDim2.new(0,x,0,y)
+    b.Size=UDim2.new(0,w,0,28) b.Position=UDim2.new(0,x,0,y)
     b.BackgroundColor3=col b.BorderSizePixel=0 b.Text=txt
-    b.TextColor3=Color3.fromRGB(220,220,255) b.TextSize=12
-    b.Font=Enum.Font.GothamBold b.AutoButtonColor=false b.Parent=Main
-    Instance.new("UICorner",b).CornerRadius=UDim.new(0,5)
-    b.MouseEnter:Connect(function() TweenService:Create(b,TweenInfo.new(0.1),{BackgroundColor3=col:Lerp(Color3.new(1,1,1),0.12)}):Play() end)
+    b.TextColor3=Color3.fromRGB(235,235,255) b.TextSize=11
+    b.Font=Enum.Font.GothamBold b.AutoButtonColor=false b.Parent=Content
+    Instance.new("UICorner",b).CornerRadius=UDim.new(0,6)
+    b.MouseEnter:Connect(function() TweenService:Create(b,TweenInfo.new(0.1),{BackgroundColor3=col:Lerp(Color3.new(1,1,1),0.15)}):Play() end)
     b.MouseLeave:Connect(function() TweenService:Create(b,TweenInfo.new(0.1),{BackgroundColor3=col}):Play() end)
     return b
 end
 
-local function StatBox(key,col,row)
-    local x=col==0 and 10 or 155
-    local y=188+row*22
+-- ==============================================================================
+-- STAT BOXES (2-koloms raster)
+-- ==============================================================================
+local function StatBox(icon, key, col, row, yBase)
+    local x = col==0 and 10 or 159
+    local y = yBase + row*24
     local box=Instance.new("Frame")
-    box.Size=UDim2.new(0,135,0,20) box.Position=UDim2.new(0,x,0,y)
-    box.BackgroundColor3=Color3.fromRGB(26,26,34) box.BorderSizePixel=0 box.Parent=Main
-    Instance.new("UICorner",box).CornerRadius=UDim.new(0,4)
+    box.Size=UDim2.new(0,138,0,22) box.Position=UDim2.new(0,x,0,y)
+    box.BackgroundColor3=COLORS.STATBG box.BorderSizePixel=0 box.Parent=Content
+    Instance.new("UICorner",box).CornerRadius=UDim.new(0,5)
+    -- Linker kleur streepje
+    local stripe=Instance.new("Frame")
+    stripe.Size=UDim2.new(0,2,1,-4) stripe.Position=UDim2.new(0,0,0,2)
+    stripe.BackgroundColor3=COLORS.ACCENT stripe.BorderSizePixel=0 stripe.Parent=box
+    Instance.new("UICorner",stripe).CornerRadius=UDim.new(0,1)
     local kl=Instance.new("TextLabel")
-    kl.Size=UDim2.new(0,48,1,0) kl.Position=UDim2.new(0,6,0,0)
-    kl.BackgroundTransparency=1 kl.Text=key kl.TextColor3=Color3.fromRGB(100,100,140)
-    kl.TextSize=10 kl.Font=Enum.Font.Gotham kl.TextXAlignment=Enum.TextXAlignment.Left kl.Parent=box
+    kl.Size=UDim2.new(0,52,1,0) kl.Position=UDim2.new(0,8,0,0)
+    kl.BackgroundTransparency=1 kl.Text=icon.." "..key kl.TextColor3=COLORS.TEXTDIM
+    kl.TextSize=9 kl.Font=Enum.Font.GothamBold kl.TextXAlignment=Enum.TextXAlignment.Left kl.Parent=box
     local vl=Instance.new("TextLabel")
-    vl.Size=UDim2.new(1,-54,1,0) vl.Position=UDim2.new(0,50,0,0)
+    vl.Size=UDim2.new(1,-62,1,0) vl.Position=UDim2.new(0,60,0,0)
     vl.BackgroundTransparency=1 vl.Text="-"
-    vl.TextColor3=Color3.fromRGB(220,220,255) vl.TextSize=10
+    vl.TextColor3=COLORS.TEXT vl.TextSize=10
     vl.Font=Enum.Font.GothamBold vl.TextXAlignment=Enum.TextXAlignment.Left vl.Parent=box
     return vl
 end
 
-Hdr("CONFIG",36)
-DD("Difficulty",{"Easy","Normal","Hard"},S.Difficulty,52,function(v) S.Difficulty=v end)
-DD("Runs",{"1","2","3","5","10","25","50","Oneindig"},"Oneindig",80,function(v)
+-- ==============================================================================
+-- GUI LAYOUT OPBOUW
+-- ==============================================================================
+
+-- CONFIG sectie
+Hdr("⚙  CONFIG", 8)
+DD("Difficulty",{"Easy","Normal","Hard"},S.Difficulty, 22, function(v) S.Difficulty=v end)
+DD("Runs",{"1","2","3","5","10","25","50","Oneindig"},"Oneindig", 52, function(v)
     S.MaxRuns=v=="Oneindig" and 0 or tonumber(v) S.CurrentRun=0 SaveState(S)
 end)
-DD("Deur wacht",{"8","10","12","15","20"},"12",108,function(v) S.DoorWait=tonumber(v) end)
-TG("Auto Attack",S.AutoAttack,136,function(v) S.AutoAttack=v end)
-Div(166) Hdr("LIVE",172)
+DD("Deur wacht",{"8","10","12","15","20"},"12", 82, function(v) S.DoorWait=tonumber(v) end)
+TG("Auto Attack", S.AutoAttack, 112, function(v) S.AutoAttack=v end)
+TG("Auto Dash (F)", true, 142, function(v)
+    -- Dash in/uitschakelen
+    _G._PeakDashEnabled = v
+end)
 
-local VS=StatBox("Status",0,0)
-local VP=StatBox("Fase",  1,0)
-local VR=StatBox("Runs",  0,1)
-local VE=StatBox("Enemy", 1,1)
-local VT=StatBox("Tijd",  0,2)
-local VB=StatBox("Best",  1,2)
-local VK=StatBox("Kills", 0,3)
-local VL=StatBox("Timer", 1,3)
+Div(174)
 
-Div(278)
-local BtnStart = Btn("[START]", 10,  282, 84, Color3.fromRGB(55,150,80))
-local BtnStop  = Btn("[STOP]",  108, 282, 84, Color3.fromRGB(170,55,55))
-local BtnParty = Btn("[Party]", 206, 282, 84, Color3.fromRGB(90,70,150))
+-- LIVE sectie
+Hdr("📊  LIVE", 180)
 
-local FaseKleur={IDLE=Color3.fromRGB(120,120,140),LOBBY=Color3.fromRGB(100,180,255),PARTY=Color3.fromRGB(255,200,80),DUNGEON=Color3.fromRGB(80,220,120)}
+local STAT_Y = 196
+local VS = StatBox("◉","Status",  0, 0, STAT_Y)
+local VP = StatBox("◈","Fase",    1, 0, STAT_Y)
+local VR = StatBox("↺","Runs",    0, 1, STAT_Y)
+local VE = StatBox("⚔","Enemy",   1, 1, STAT_Y)
+local VT = StatBox("⏱","Tijd",    0, 2, STAT_Y)
+local VB = StatBox("★","Best",    1, 2, STAT_Y)
+local VK = StatBox("☠","Kills",   0, 3, STAT_Y)
+local VL = StatBox("⌛","Timer",  1, 3, STAT_Y)
 
-local function US(t) pcall(function() VS.Text=tostring(t) end) Log("Status",t) end
+Div(294)
+
+-- KNOPPEN rij
+local BtnStart  = Btn("▶  START",  10,  298, 88, COLORS.GREEN)
+local BtnStop   = Btn("■  STOP",   102, 298, 82, COLORS.RED)
+local BtnParty  = Btn("⚑ PARTY",  188, 298, 74, COLORS.PURPLE)
+local BtnTPTest = Btn("⊕ TP",     266, 298, 34, Color3.fromRGB(40,60,100))
+
+Div(332)
+
+-- STATS sessie-overzicht balk onderaan
+local SessionBar = Instance.new("Frame")
+SessionBar.Size=UDim2.new(1,-20,0,18) SessionBar.Position=UDim2.new(0,10,0,338)
+SessionBar.BackgroundColor3=COLORS.STATBG SessionBar.BorderSizePixel=0 SessionBar.Parent=Content
+Instance.new("UICorner",SessionBar).CornerRadius=UDim.new(0,5)
+
+local SessionLabel = Instance.new("TextLabel")
+SessionLabel.Size=UDim2.new(1,-10,1,0) SessionLabel.Position=UDim2.new(0,8,0,0)
+SessionLabel.BackgroundTransparency=1
+SessionLabel.Text="Sessie: 0 runs  ·  0 kills  ·  0m totaal"
+SessionLabel.TextColor3=COLORS.TEXTDIM SessionLabel.TextSize=9
+SessionLabel.Font=Enum.Font.Gotham SessionLabel.TextXAlignment=Enum.TextXAlignment.Left
+SessionLabel.Parent=SessionBar
+
+-- F8 hint onderaan
+local HintBar = Instance.new("TextLabel")
+HintBar.Size=UDim2.new(1,0,0,12) HintBar.Position=UDim2.new(0,0,0,358)
+HintBar.BackgroundTransparency=1 HintBar.Text="F8 = toon/verberg  ·  Sleep titlebar = verplaatsen"
+HintBar.TextColor3=Color3.fromRGB(40,40,60) HintBar.TextSize=8
+HintBar.Font=Enum.Font.Gotham HintBar.Parent=Content
+
+-- ==============================================================================
+-- FASE KLEUREN
+-- ==============================================================================
+local FaseKleur={
+    IDLE    = Color3.fromRGB(100, 100, 130),
+    LOBBY   = Color3.fromRGB(80,  180, 255),
+    PARTY   = Color3.fromRGB(255, 200, 80),
+    DUNGEON = Color3.fromRGB(80,  220, 120),
+}
+
+-- ==============================================================================
+-- UI UPDATE FUNCTIES
+-- ==============================================================================
+local function US(t)
+    pcall(function() VS.Text=tostring(t) end)
+    Log("Status",t)
+end
+
+local function UpdateStatusDot(running)
+    pcall(function()
+        local col = running and COLORS.GREEN or Color3.fromRGB(60,60,80)
+        TweenService:Create(StatusDot, TweenInfo.new(0.3), {BackgroundColor3=col}):Play()
+    end)
+end
+
 local function UP(p)
     S.Phase=p SaveState(S)
-    pcall(function() VP.Text=p VP.TextColor3=FaseKleur[p] or Color3.fromRGB(220,220,255) end)
+    pcall(function()
+        VP.Text=p
+        VP.TextColor3=FaseKleur[p] or COLORS.TEXT
+    end)
+    UpdateStatusDot(S.Running)
 end
-local function UR() pcall(function() VR.Text=S.CurrentRun.."/".. (S.MaxRuns==0 and "inf" or S.MaxRuns) end) end
-local function UE(a,t) pcall(function() VE.Text=a and (a.."/"..t) or "-" end) end
-local function UK() pcall(function() VK.Text=tostring(S.TotalKills) end) end
-local function UT(s) pcall(function() VT.Text=s or "-" end) end
-local function UB(s) if not s then return end pcall(function() VB.Text=string.format("%d:%02d",math.floor(s/60),s%60) end) end
-local function UL(s) pcall(function() VL.Text=s or "-" end) end
+
+local function UR()
+    pcall(function() VR.Text=S.CurrentRun.."/".. (S.MaxRuns==0 and "∞" or S.MaxRuns) end)
+end
+
+local function UE(a,t)
+    pcall(function() VE.Text=a and (a.."/"..t) or "-" end)
+end
+
+local function UK()
+    pcall(function() VK.Text=tostring(S.TotalKills) end)
+end
+
+local function UT(s)
+    pcall(function() VT.Text=s or "-" end)
+end
+
+local function UB(s)
+    if not s then return end
+    pcall(function() VB.Text=string.format("%d:%02d",math.floor(s/60),s%60) end)
+end
+
+local function UL(s)
+    pcall(function() VL.Text=s or "-" end)
+end
+
+local function UpdateSessionBar()
+    pcall(function()
+        local totalMin = math.floor((S.TotalTimeSec or 0) / 60)
+        SessionLabel.Text = string.format(
+            "Sessie: %d runs  ·  %d kills  ·  %dm totaal",
+            S.TotalRuns or 0, S.TotalKills or 0, totalMin
+        )
+    end)
+end
 
 -- ==============================================================================
 -- LIVE TIMER
@@ -289,7 +552,7 @@ local function StopLiveTimer()
 end
 
 -- ==============================================================================
--- WERELD
+-- WERELD HULPFUNCTIES
 -- ==============================================================================
 local function WaitForWorldLoad(max)
     max=max or 15 local dl=tick()+max US("Wereld laden...")
@@ -369,9 +632,8 @@ local function IsEndScreenVisible()
 end
 
 -- ==============================================================================
--- ROUTES
+-- KARAKTER / ROUTES
 -- ==============================================================================
--- GetChar hier zodat FindNearestRouteIndex het kan gebruiken
 local function GetChar()
     local c=LocalPlayer.Character if not c then return nil,nil,nil end
     return c,c:FindFirstChild("Humanoid"),c:FindFirstChild("HumanoidRootPart")
@@ -384,11 +646,6 @@ local LobbyRoute={
 
 local DungeonEnd=Vector3.new(-880.3,31.6,-507.3)
 
--- ==============================================================================
--- SLIM STARTPUNT
--- Zoekt het dichtstbijzijnde waypoint in de route en begint VANAF daar.
--- Zo loopt hij niet terug als je al ver bent.
--- ==============================================================================
 local function FindNearestRouteIndex(route)
     local _,_,root = GetChar()
     if not root then return 1 end
@@ -401,10 +658,9 @@ local function FindNearestRouteIndex(route)
             bestIdx = i
         end
     end
-    -- Als we al heel dicht bij het eindpunt zijn, sla de hele route over
     local lastPos = route[#route].Pos
     if (root.Position - lastPos).Magnitude < 8 then
-        return #route + 1   -- geeft aan: sla alle waypoints over
+        return #route + 1
     end
     Log("Route","Dichtstbijzijnde waypoint: "..bestIdx.." (dist="..math.floor(bestDist)..")")
     return bestIdx
@@ -609,7 +865,8 @@ local function Walk(targetPos)
         end
 
         RefreshMoveTo()
-        TryDash()   -- F-dash elke ~2s tijdens lopen
+
+        if _G._PeakDashEnabled ~= false then TryDash() end
 
         if tick()-lastEL>2 then
             local alive,total=CountEnemies() UE(alive,total)
@@ -660,7 +917,6 @@ end
 
 -- ==============================================================================
 -- DUNGEON CLEAR - TP PER ENEMY
--- Teleporteert direct naar elke levende mob, valt aan tot dood, volgende.
 -- ==============================================================================
 local function ClearDungeon()
     Log("Dungeon","TP-per-enemy clear gestart")
@@ -672,7 +928,6 @@ local function ClearDungeon()
             return
         end
 
-        -- Verzamel ALLE levende mobs
         local aliveMobs = {}
         pcall(function()
             local st = Workspace:FindFirstChild("Stage") if not st then return end
@@ -696,7 +951,6 @@ local function ClearDungeon()
 
         if #aliveMobs == 0 then
             Log("Dungeon","Alle mobs dood")
-            -- Wacht kort op eindscherm trigger van server
             local waitEnd = time() + 5
             while time() < waitEnd do
                 if IsEndScreenVisible() then return end
@@ -708,7 +962,6 @@ local function ClearDungeon()
         UE(#aliveMobs, #aliveMobs)
         Log("Dungeon", #aliveMobs .. " mobs over")
 
-        -- Loop door elke mob
         for _, mob in ipairs(aliveMobs) do
             if not S.Running then return end
             if IsEndScreenVisible() then return end
@@ -717,7 +970,6 @@ local function ClearDungeon()
             local er  = mob:FindFirstChild("HumanoidRootPart")
             if not hum or not er or hum.Health <= 0 then continue end
 
-            -- Teleport direct naast de mob
             local _, playerHum, root = GetChar()
             if not root or not playerHum then return end
 
@@ -726,7 +978,6 @@ local function ClearDungeon()
             end)
             task.wait(0.1)
 
-            -- Aanvallen tot dood (max 20s per mob)
             local combatTimeout = time() + 20
             local healthBefore = hum.Health
             repeat
@@ -734,21 +985,19 @@ local function ClearDungeon()
                 if IsEndScreenVisible() then return end
                 _, playerHum, root = GetChar()
                 if not root then return end
-            
+
                 pcall(function()
                     root.CFrame = CFrame.new(er.Position + Vector3.new(2, 0, 0))
                 end)
-            
+
                 Attack(mob)
-                TryDash()
+                if _G._PeakDashEnabled ~= false then TryDash() end
                 task.wait(0.15)
-            
-                -- Als health gedaald is na eerste hit, meteen doorgaan
+
                 if hum.Health < healthBefore then
-                    Log("Dungeon","Health gedaald ("..hum.Health.." < "..healthBefore.."), volgende mob")
                     break
                 end
-            
+
             until not mob or not mob.Parent
                 or not hum or hum.Health <= 0
                 or time() > combatTimeout
@@ -757,13 +1006,13 @@ local function ClearDungeon()
                 S.TotalKills += 1
                 SaveState(S)
                 UK()
+                UpdateSessionBar()
                 Log("Dungeon","Mob gekild | Totaal: " .. S.TotalKills)
             end
 
             task.wait(0.05)
         end
 
-        -- Korte pauze voor volgende scan (server sync)
         task.wait(0.3)
     end
 
@@ -785,7 +1034,7 @@ local function RunDungeonPhase()
     local alive,total=CountEnemies()
     Log("Dungeon","Enemies: "..alive.."/"..total) UE(alive,total)
 
-    US("Run "..S.CurrentRun.." | Lopen...")
+    US("Run "..S.CurrentRun.." | Aanvallen...")
     ClearDungeon()
     if not S.Running then StopLiveTimer() return end
 
@@ -806,10 +1055,10 @@ local function RunDungeonPhase()
         Log("Dungeon","Nieuwe best: "..timeStr)
     end
 
-    -- Persistente tellers: overleven teleports via _G/shared
     S.TotalRuns = (S.TotalRuns or 0) + 1
     S.TotalTimeSec = (S.TotalTimeSec or 0) + elapsed
     S.CurrentRun+=1 SaveState(S) UR()
+    UpdateSessionBar()
 
     local totalTimeStr = string.format("%dh %dm",
         math.floor(S.TotalTimeSec/3600),
@@ -818,7 +1067,9 @@ local function RunDungeonPhase()
 
     if S.MaxRuns>0 and S.CurrentRun>S.MaxRuns then
         US("Klaar! "..S.MaxRuns.." runs") Log("Dungeon","Max bereikt")
-        S.Running=false SaveState(S) UP("IDLE") UE(nil,nil) return
+        S.Running=false SaveState(S) UP("IDLE") UE(nil,nil)
+        UpdateStatusDot(false)
+        return
     end
 
     US("Wacht Again...") Log("Dungeon","Zoeken againbtn (max 40s)...")
@@ -844,18 +1095,14 @@ local function RunDungeonPhase()
                     return
                 end
             end
-            Log("Dungeon","Eindscherm nog zichtbaar na klik, opnieuw proberen...")
         end
         task.wait(0.5)
     end
     Warn("Dungeon","Again timeout") US("Again niet gevonden")
     S.Running=false SaveState(S) UP("IDLE") StopLiveTimer()
+    UpdateStatusDot(false)
 end
 
--- ==============================================================================
--- LOBBY FASE - SLIM STARTPUNT
--- Start vanaf het dichtstbijzijnde waypoint, loopt nooit terug
--- ==============================================================================
 local function RunLobbyPhase()
     UP("LOBBY") Log("Lobby","Start")
     WaitForWorldLoad(15) if not S.Running then return end
@@ -870,17 +1117,14 @@ local function RunLobbyPhase()
     if startIdx <= #LobbyRoute then
         for i = startIdx, #LobbyRoute do
             if not S.Running then return end
-
             local step = LobbyRoute[i]
             Log("Lobby","Stap "..i.." | TP naar "..tostring(step.Pos))
             US("Lobby stap "..i.."/"..#LobbyRoute)
-
-            -- Directe TP in rechte lijn, geen muur problemen
             pcall(function()
                 root.CFrame = CFrame.new(step.Pos)
             end)
             task.wait(0.1)
-            TryDash()
+            if _G._PeakDashEnabled ~= false then TryDash() end
             task.wait(0.1)
         end
     else
@@ -894,6 +1138,7 @@ local function RunLobbyPhase()
     if not ok then
         Warn("Lobby","Party mislukt") US("Party mislukt")
         S.Running=false SaveState(S) UP("IDLE")
+        UpdateStatusDot(false)
     end
 end
 
@@ -923,23 +1168,25 @@ local function AutoStart()
 end
 
 -- ==============================================================================
--- KNOPPEN
+-- HOOFD KNOPPEN
 -- ==============================================================================
 BtnStart.MouseButton1Click:Connect(function()
     if S.Running then US("Al bezig!") return end
-    -- CurrentRun en TotalKills resetten voor nieuwe sessie
-    -- TotalRuns en TotalTimeSec blijven staan (persistent over alle sessies)
     S.Running=true S.CurrentRun=0 S.TotalKills=0
     if not S.TotalRuns then S.TotalRuns=0 end
     if not S.TotalTimeSec then S.TotalTimeSec=0 end
     SaveState(S) UP("LOBBY")
     UR() UK() UE(nil,nil) UT(nil) UL(nil)
-    Log("Control","START | TotalRuns tot nu: "..S.TotalRuns) task.spawn(AutoStart)
+    UpdateStatusDot(true)
+    UpdateSessionBar()
+    Log("Control","START | TotalRuns tot nu: "..S.TotalRuns)
+    task.spawn(AutoStart)
 end)
 
 BtnStop.MouseButton1Click:Connect(function()
     S.Running=false SaveState(S) UP("IDLE") UE(nil,nil) UL(nil)
     StopLiveTimer()
+    UpdateStatusDot(false)
     pcall(function() local _,hum,root=GetChar() if hum and root then hum:MoveTo(root.Position) end end)
     US("Gestopt") Log("Control","STOP")
 end)
@@ -947,10 +1194,9 @@ end)
 BtnParty.MouseButton1Click:Connect(function()
     if not S.Running then task.spawn(TryCreateParty) end
 end)
+
 -- ==============================================================================
 -- TP BOSS TEST
--- Teleporteert direct naar DungeonEnd, valt de boss aan,
--- en checkt of het eindscherm verschijnt. Normaal gedrag ongewijzigd.
 -- ==============================================================================
 local _tpTestRunning = false
 
@@ -960,7 +1206,6 @@ local function TPBossTest()
     US("TP Test: teleporteren...")
     Log("TPTest","Start")
 
-    -- Stap 1: Teleport naar boss/eindzone
     local char, hum, root = GetChar()
     if not char or not root then
         Warn("TPTest","Geen karakter gevonden")
@@ -973,11 +1218,10 @@ local function TPBossTest()
     end)
     task.wait(0.5)
 
-    -- Stap 2: Zoek en kill de boss (dichtstbijzijnde mob)
     US("TP Test: boss aanvallen...")
     Log("TPTest","Aanvallen gestart")
 
-    local attackTimeout = tick() + 60  -- max 60s aanvallen
+    local attackTimeout = tick() + 60
     local hitCount = 0
 
     while tick() < attackTimeout do
@@ -991,19 +1235,17 @@ local function TPBossTest()
         end
 
         Attack(enemy)
-        TryDash()
+        if _G._PeakDashEnabled ~= false then TryDash() end
         hitCount += 1
 
-        -- Volg de boss
         pcall(function()
             local er = enemy:FindFirstChild("HumanoidRootPart")
             if er then hum:MoveTo(er.Position) end
         end)
 
-        -- Check eindscherm elke aanval
         if IsEndScreenVisible() then
             Log("TPTest","✓ EINDSCHERM ZICHTBAAR na "..hitCount.." hits!")
-            US("TP Test: SUCCESS! Eindscherm ok ✓")
+            US("TP Test: SUCCESS! ✓")
             _tpTestRunning = false
             return
         end
@@ -1011,14 +1253,13 @@ local function TPBossTest()
         task.wait(0.15)
     end
 
-    -- Stap 3: Eindcheck na aanvalloop
     task.wait(1)
     if IsEndScreenVisible() then
         Log("TPTest","✓ EINDSCHERM ZICHTBAAR (na wacht)")
         US("TP Test: SUCCESS! ✓")
     else
         Warn("TPTest","✗ Eindscherm NIET gevonden na "..hitCount.." hits")
-        US("TP Test: MISLUKT - geen eindscherm ✗")
+        US("TP Test: MISLUKT ✗")
     end
 
     _tpTestRunning = false
@@ -1031,9 +1272,13 @@ end)
 -- ==============================================================================
 -- BOOT
 -- ==============================================================================
-US("Idle") UR() UP(S.Phase) UK() UL(nil)
+_G._PeakDashEnabled = true  -- standaard aan
+
+US("Idle") UR() UP(S.Phase) UK() UL(nil) UpdateSessionBar()
 if S.BestTime then UB(S.BestTime) end
+UpdateStatusDot(S.Running)
 Log("Boot","TotalRuns="..(S.TotalRuns or 0).." TotalTijd="..(S.TotalTimeSec or 0).."s Kills="..S.TotalKills)
+Log("Boot","[F8] = GUI tonen/verbergen  |  [─] = minimaliseren  |  [✕] = sluiten")
 
 task.spawn(function()
     task.wait(2)
@@ -1053,6 +1298,7 @@ task.spawn(function()
         S.Running = true
         SaveState(S)
         UP("DUNGEON")
+        UpdateStatusDot(true)
         UR() UK() UE(nil,nil) UL(nil)
         US("Dungeon gedetecteerd! Hervatten...")
         RunDungeonPhase()
@@ -1061,6 +1307,6 @@ task.spawn(function()
         task.spawn(AutoStart)
     else
         US("Idle - Druk op START")
-        Log("Boot","Fresh start")
+        Log("Boot","Fresh start - F8 om GUI te verbergen")
     end
 end)
