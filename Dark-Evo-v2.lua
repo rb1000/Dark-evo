@@ -560,6 +560,19 @@ end
 
 -- Forward declaration, zodat UpdateSessionBar en timer dezelfde lokale variabele gebruiken.
 local _localRunStart = 0
+local _runStartTotalKills = 0
+
+local function GetRunKills()
+    local runKills = (S.TotalKills or 0) - (_runStartTotalKills or 0)
+    if runKills < 0 then runKills = 0 end
+    return runKills
+end
+
+local function UpdateEnemyProgress(alive)
+    local a = alive or 0
+    local totalThisRun = a + GetRunKills()
+    UE(a, totalThisRun)
+end
 
 local function UpdateSessionBar()
     pcall(function()
@@ -1000,13 +1013,13 @@ end
 local function ClearDungeon()
     Log("Dungeon","TP-per-enemy clear gestart")
     local timeout = time() + 300
-    local totalMobsAtStart = 0  -- vastgelegde beginwaarde voor correcte teller
+    local totalMobsAtStart = 0  -- alleen voor logging
 
     -- Tel beginaantal voor de UI
     pcall(function()
         local st = Workspace:FindFirstChild("Stage") if not st then return end
         for _, map in pairs(st:GetChildren()) do
-            if map.Name ~= "baseStage" then
+            if string.sub(map.Name,1,3)=="map" then
                 local f = map:FindFirstChild("monster") or map:FindFirstChild("Enemies")
                 if f then
                     for _, mob in pairs(f:GetChildren()) do
@@ -1031,7 +1044,7 @@ local function ClearDungeon()
         pcall(function()
             local st = Workspace:FindFirstChild("Stage") if not st then return end
             for _, map in pairs(st:GetChildren()) do
-                if map.Name ~= "baseStage" then
+                if string.sub(map.Name,1,3)=="map" then
                     local f = map:FindFirstChild("monster") or map:FindFirstChild("Enemies")
                     if f then
                         for _, mob in pairs(f:GetChildren()) do
@@ -1050,6 +1063,7 @@ local function ClearDungeon()
 
         if #aliveMobs == 0 then
             Log("Dungeon","Alle mobs dood")
+            UpdateEnemyProgress(0)
             local waitEnd = time() + 5
             while time() < waitEnd do
                 if IsEndScreenVisible() then return end
@@ -1058,7 +1072,7 @@ local function ClearDungeon()
             return
         end
 
-        UE(#aliveMobs, totalMobsAtStart > 0 and totalMobsAtStart or #aliveMobs)
+        UpdateEnemyProgress(#aliveMobs)
         Log("Dungeon", #aliveMobs .. " mobs over")
 
         for _, mob in ipairs(aliveMobs) do
@@ -1125,7 +1139,7 @@ local function ClearDungeon()
             pcall(function()
                 local st = Workspace:FindFirstChild("Stage") if not st then return end
                 for _, map in pairs(st:GetChildren()) do
-                    if map.Name ~= "baseStage" then
+                    if string.sub(map.Name,1,3)=="map" then
                         local f = map:FindFirstChild("monster") or map:FindFirstChild("Enemies")
                         if f then
                             for _, m in pairs(f:GetChildren()) do
@@ -1138,7 +1152,7 @@ local function ClearDungeon()
                     end
                 end
             end)
-            UE(stillAlive, totalMobsAtStart)
+            UpdateEnemyProgress(stillAlive)
             UpdateSessionBar()
 
             task.wait(0.05)
@@ -1160,10 +1174,12 @@ local function RunDungeonPhase()
     WaitForLoadingGui(30)  if not S.Running then return end
     WaitForDoor()          if not S.Running then return end
 
+    _runStartTotalKills = S.TotalKills or 0
     StartLiveTimer()
 
     local alive,total=CountEnemies()
-    Log("Dungeon","Enemies: "..alive.."/"..total) UE(alive,total)
+    Log("Dungeon","Enemies init: "..alive.."/"..total)
+    UpdateEnemyProgress(alive)
 
     US("Run "..S.CurrentRun.." | Aanvallen...")
     ClearDungeon()
