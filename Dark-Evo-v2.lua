@@ -491,7 +491,7 @@ SessionLabel.Parent=SessionBar
 local HintBar = Instance.new("TextLabel")
 HintBar.Size=UDim2.new(1,0,0,12) HintBar.Position=UDim2.new(0,0,0,330)
 HintBar.BackgroundTransparency=1 HintBar.Text="F8 = toon/verberg  ·  Sleep titlebar = verplaatsen"
-HintBar.TextColor3=Color3.fromRGB(200,200,230) HintBar.TextSize=9
+HintBar.TextColor3=Color3.fromRGB(255,255,255) HintBar.TextSize=10
 HintBar.Font=Enum.Font.Gotham HintBar.Parent=Content
 
 -- ==============================================================================
@@ -529,8 +529,7 @@ local function UP(p)
 end
 
 local function UR()
-    -- CurrentRun is 0-based tijdens de run, toon als +1 zodat je "1/∞" ziet ipv "0/∞"
-    pcall(function() VR.Text=(S.CurrentRun+1).."/".. (S.MaxRuns==0 and "∞" or S.MaxRuns) end)
+    pcall(function() VR.Text=tostring(S.TotalRuns or 0) end)
 end
 
 local function UE(a,t)
@@ -561,9 +560,9 @@ end
 
 local function UpdateSessionBar()
     pcall(function()
-        -- TotalTimeSec = afgeronde runs, plus huidige lopende run als die actief is
         local total = (S.TotalTimeSec or 0)
-        if S.Running and S.Phase == "DUNGEON" and _localRunStart > 0 then
+        -- Voeg huidige lopende run toe als timer actief is
+        if _localRunStart > 0 and S.Running then
             total = total + math.floor(tick() - _localRunStart)
         end
         local h  = math.floor(total / 3600)
@@ -587,6 +586,8 @@ RunService.Heartbeat:Connect(function()
     if tick() - _lastBarUpdate < 1 then return end
     _lastBarUpdate = tick()
     UpdateSessionBar()
+    UK()
+    UR()
 end)
 
 -- ==============================================================================
@@ -614,6 +615,7 @@ end
 
 local function StopLiveTimer()
     if timerConn then pcall(function() timerConn:Disconnect() end) timerConn=nil end
+    _localRunStart = 0
 end
 
 -- ==============================================================================
