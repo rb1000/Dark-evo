@@ -86,7 +86,7 @@ local function LoadState()
                MaxRuns=0, CurrentRun=0, Phase="IDLE",
                TotalKills=0, BestTime=nil, RunStart=0,
                TotalRuns=0, TotalTimeSec=0,
-               SessionKills=0, SessionRuns=0}
+               SessionKills=0, SessionRuns=0, RunKills=0}
 
     -- Lifetime stats uit bestand laden (overleeft teleport)
     pcall(function()
@@ -537,11 +537,11 @@ local function UE(a,t)
 end
 
 local function UK()
-    -- Kills box: sessie kills (en lifetime tussen haakjes)
+    -- Kills box: huidige run kills (en lifetime tussen haakjes)
     pcall(function()
-        local sess = S.SessionKills or 0
+        local run = S.RunKills or 0
         local total = S.TotalKills or 0
-        VK.Text = sess .. " (" .. total .. ")"
+        VK.Text = run .. " (" .. total .. ")"
     end)
 end
 
@@ -560,12 +560,9 @@ end
 
 -- Forward declaration, zodat UpdateSessionBar en timer dezelfde lokale variabele gebruiken.
 local _localRunStart = 0
-local _runStartTotalKills = 0
 
 local function GetRunKills()
-    local runKills = (S.TotalKills or 0) - (_runStartTotalKills or 0)
-    if runKills < 0 then runKills = 0 end
-    return runKills
+    return S.RunKills or 0
 end
 
 local function UpdateEnemyProgress(alive)
@@ -963,7 +960,8 @@ local function Walk(targetPos)
         if _G._PeakDashEnabled ~= false then TryDash() end
 
         if tick()-lastEL>2 then
-            local alive,total=CountEnemies() UE(alive,total)
+            local alive,total=CountEnemies()
+            UpdateEnemyProgress(alive)
             lastEL=tick()
         end
 
@@ -1004,7 +1002,8 @@ local function Walk(targetPos)
     end
 
     local alive,total=CountEnemies()
-    Log("Combat","Klaar | "..alive.."/"..total.." over") UE(alive,total)
+    Log("Combat","Klaar | "..alive.."/"..total.." over")
+    UpdateEnemyProgress(alive)
 end
 
 -- ==============================================================================
@@ -1127,9 +1126,10 @@ local function ClearDungeon()
             if mobDead then
                 S.TotalKills = (S.TotalKills or 0) + 1
                 S.SessionKills = (S.SessionKills or 0) + 1
+                S.RunKills = (S.RunKills or 0) + 1
                 SaveState(S)
                 UK()
-                Log("Dungeon","Mob gekild | Sessie: "..S.SessionKills.." | Totaal: "..S.TotalKills)
+                Log("Dungeon","Mob gekild | Run: "..(S.RunKills or 0).." | Sessie: "..S.SessionKills.." | Totaal: "..S.TotalKills)
             else
                 Log("Dungeon","Mob combat timeout, volgende")
             end
@@ -1174,7 +1174,8 @@ local function RunDungeonPhase()
     WaitForLoadingGui(30)  if not S.Running then return end
     WaitForDoor()          if not S.Running then return end
 
-    _runStartTotalKills = S.TotalKills or 0
+    S.RunKills = 0
+    UK()
     StartLiveTimer()
 
     local alive,total=CountEnemies()
@@ -1327,6 +1328,7 @@ BtnStart.MouseButton1Click:Connect(function()
     S.CurrentRun=0
     S.SessionKills=0
     S.SessionRuns=0
+    S.RunKills=0
     -- Lifetime totals NIET resetten: TotalRuns, TotalTimeSec, TotalKills, BestTime
     if not S.TotalRuns then S.TotalRuns=0 end
     if not S.TotalTimeSec then S.TotalTimeSec=0 end
