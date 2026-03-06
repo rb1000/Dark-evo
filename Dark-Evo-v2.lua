@@ -730,20 +730,27 @@ local function ClearDungeon()
 
             -- Aanvallen tot dood (max 20s per mob)
             local combatTimeout = time() + 20
+            local healthBefore = hum.Health
             repeat
                 if not S.Running then return end
                 if IsEndScreenVisible() then return end
                 _, playerHum, root = GetChar()
                 if not root then return end
-
-                -- Blijf naast mob (mob kan bewegen)
+            
                 pcall(function()
                     root.CFrame = CFrame.new(er.Position + Vector3.new(2, 0, 0))
                 end)
-
+            
                 Attack(mob)
                 TryDash()
                 task.wait(0.15)
+            
+                -- Als health gedaald is na eerste hit, meteen doorgaan
+                if hum.Health < healthBefore then
+                    Log("Dungeon","Health gedaald ("..hum.Health.." < "..healthBefore.."), volgende mob")
+                    break
+                end
+            
             until not mob or not mob.Parent
                 or not hum or hum.Health <= 0
                 or time() > combatTimeout
