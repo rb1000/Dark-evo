@@ -107,7 +107,7 @@ Screen.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
 Screen.Parent=LocalPlayer.PlayerGui
 
 local Main = Instance.new("Frame")
-Main.Name="Main" Main.Size=UDim2.new(0,300,0,340)
+Main.Name="Main" Main.Size=UDim2.new(0,300,0,370)
 Main.Position=UDim2.new(0,16,0.5,-183)
 Main.BackgroundColor3=Color3.fromRGB(18,18,22)
 Main.BorderSizePixel=0 Main.Active=true Main.Draggable=true Main.Parent=Screen
@@ -251,6 +251,8 @@ Div(278)
 local BtnStart = Btn("[START]", 10,  282, 84, Color3.fromRGB(55,150,80))
 local BtnStop  = Btn("[STOP]",  108, 282, 84, Color3.fromRGB(170,55,55))
 local BtnParty = Btn("[Party]", 206, 282, 84, Color3.fromRGB(90,70,150))
+Div(312)
+local BtnTPTest = Btn("[TP Boss Test]", 10, 318, 280, Color3.fromRGB(180,120,30))
 
 local FaseKleur={IDLE=Color3.fromRGB(120,120,140),LOBBY=Color3.fromRGB(100,180,255),PARTY=Color3.fromRGB(255,200,80),DUNGEON=Color3.fromRGB(80,220,120)}
 
@@ -877,6 +879,86 @@ end)
 
 BtnParty.MouseButton1Click:Connect(function()
     if not S.Running then task.spawn(TryCreateParty) end
+end)
+-- ==============================================================================
+-- TP BOSS TEST
+-- Teleporteert direct naar DungeonEnd, valt de boss aan,
+-- en checkt of het eindscherm verschijnt. Normaal gedrag ongewijzigd.
+-- ==============================================================================
+local _tpTestRunning = false
+
+local function TPBossTest()
+    if _tpTestRunning then US("TP Test al bezig!") return end
+    _tpTestRunning = true
+    US("TP Test: teleporteren...")
+    Log("TPTest","Start")
+
+    -- Stap 1: Teleport naar boss/eindzone
+    local char, hum, root = GetChar()
+    if not char or not root then
+        Warn("TPTest","Geen karakter gevonden")
+        _tpTestRunning = false
+        return
+    end
+
+    pcall(function()
+        root.CFrame = CFrame.new(DungeonEnd)
+    end)
+    task.wait(0.5)
+
+    -- Stap 2: Zoek en kill de boss (dichtstbijzijnde mob)
+    US("TP Test: boss aanvallen...")
+    Log("TPTest","Aanvallen gestart")
+
+    local attackTimeout = tick() + 60  -- max 60s aanvallen
+    local hitCount = 0
+
+    while tick() < attackTimeout do
+        char, hum, root = GetChar()
+        if not char then break end
+
+        local enemy = FindEnemy()
+        if not enemy then
+            Log("TPTest","Geen mobs meer in range - mogelijk dood")
+            break
+        end
+
+        Attack(enemy)
+        TryDash()
+        hitCount += 1
+
+        -- Volg de boss
+        pcall(function()
+            local er = enemy:FindFirstChild("HumanoidRootPart")
+            if er then hum:MoveTo(er.Position) end
+        end)
+
+        -- Check eindscherm elke aanval
+        if IsEndScreenVisible() then
+            Log("TPTest","✓ EINDSCHERM ZICHTBAAR na "..hitCount.." hits!")
+            US("TP Test: SUCCESS! Eindscherm ok ✓")
+            _tpTestRunning = false
+            return
+        end
+
+        task.wait(0.15)
+    end
+
+    -- Stap 3: Eindcheck na aanvalloop
+    task.wait(1)
+    if IsEndScreenVisible() then
+        Log("TPTest","✓ EINDSCHERM ZICHTBAAR (na wacht)")
+        US("TP Test: SUCCESS! ✓")
+    else
+        Warn("TPTest","✗ Eindscherm NIET gevonden na "..hitCount.." hits")
+        US("TP Test: MISLUKT - geen eindscherm ✗")
+    end
+
+    _tpTestRunning = false
+end
+
+BtnTPTest.MouseButton1Click:Connect(function()
+    task.spawn(TPBossTest)
 end)
 
 -- ==============================================================================
