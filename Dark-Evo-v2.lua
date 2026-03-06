@@ -151,10 +151,10 @@ local COLORS = {
     RED       = Color3.fromRGB(210, 55, 65),
     ORANGE    = Color3.fromRGB(220, 140, 40),
     PURPLE    = Color3.fromRGB(110, 70, 200),
-    TEXT      = Color3.fromRGB(220, 220, 255),
-    TEXTDIM   = Color3.fromRGB(110, 110, 150),
+    TEXT      = Color3.fromRGB(235, 235, 255),   -- helderwit
+    TEXTDIM   = Color3.fromRGB(170, 170, 200),   -- was 110,110,150 - nu veel leesbaarder
     DIV       = Color3.fromRGB(35, 35, 52),
-    STATBG    = Color3.fromRGB(18, 18, 28),
+    STATBG    = Color3.fromRGB(22, 22, 32),
 }
 
 local Screen = Instance.new("ScreenGui")
@@ -423,12 +423,12 @@ local function StatBox(icon, key, col, row, yBase)
     Instance.new("UICorner",stripe).CornerRadius=UDim.new(0,1)
     local kl=Instance.new("TextLabel")
     kl.Size=UDim2.new(0,52,1,0) kl.Position=UDim2.new(0,8,0,0)
-    kl.BackgroundTransparency=1 kl.Text=icon.." "..key kl.TextColor3=COLORS.TEXTDIM
-    kl.TextSize=9 kl.Font=Enum.Font.GothamBold kl.TextXAlignment=Enum.TextXAlignment.Left kl.Parent=box
+    kl.BackgroundTransparency=1 kl.Text=icon.." "..key kl.TextColor3=Color3.fromRGB(160,160,200)
+    kl.TextSize=10 kl.Font=Enum.Font.GothamBold kl.TextXAlignment=Enum.TextXAlignment.Left kl.Parent=box
     local vl=Instance.new("TextLabel")
     vl.Size=UDim2.new(1,-62,1,0) vl.Position=UDim2.new(0,60,0,0)
     vl.BackgroundTransparency=1 vl.Text="-"
-    vl.TextColor3=COLORS.TEXT vl.TextSize=10
+    vl.TextColor3=Color3.fromRGB(240,240,255) vl.TextSize=11
     vl.Font=Enum.Font.GothamBold vl.TextXAlignment=Enum.TextXAlignment.Left vl.Parent=box
     return vl
 end
@@ -484,15 +484,15 @@ local SessionLabel = Instance.new("TextLabel")
 SessionLabel.Size=UDim2.new(1,-10,1,0) SessionLabel.Position=UDim2.new(0,8,0,0)
 SessionLabel.BackgroundTransparency=1
 SessionLabel.Text="Sessie: 0 runs  ·  0 kills  ·  0m totaal"
-SessionLabel.TextColor3=COLORS.TEXTDIM SessionLabel.TextSize=9
-SessionLabel.Font=Enum.Font.Gotham SessionLabel.TextXAlignment=Enum.TextXAlignment.Left
+SessionLabel.TextColor3=Color3.fromRGB(180,180,220) SessionLabel.TextSize=10
+SessionLabel.Font=Enum.Font.GothamBold SessionLabel.TextXAlignment=Enum.TextXAlignment.Left
 SessionLabel.Parent=SessionBar
 
 -- F8 hint onderaan
 local HintBar = Instance.new("TextLabel")
 HintBar.Size=UDim2.new(1,0,0,12) HintBar.Position=UDim2.new(0,0,0,358)
 HintBar.BackgroundTransparency=1 HintBar.Text="F8 = toon/verberg  ·  Sleep titlebar = verplaatsen"
-HintBar.TextColor3=Color3.fromRGB(40,40,60) HintBar.TextSize=8
+HintBar.TextColor3=Color3.fromRGB(120,120,160) HintBar.TextSize=9
 HintBar.Font=Enum.Font.Gotham HintBar.Parent=Content
 
 -- ==============================================================================
@@ -562,10 +562,19 @@ end
 
 local function UpdateSessionBar()
     pcall(function()
-        local sessMin = math.floor((S.TotalTimeSec or 0) / 60)
+        local total = S.TotalTimeSec or 0
+        local h = math.floor(total / 3600)
+        local m = math.floor((total % 3600) / 60)
+        local sc = total % 60
+        local timeStr
+        if h > 0 then
+            timeStr = string.format("%dh %dm %ds", h, m, sc)
+        else
+            timeStr = string.format("%dm %ds", m, sc)
+        end
         SessionLabel.Text = string.format(
-            "Lifetime: %d runs  ·  %d kills  ·  %dm",
-            S.TotalRuns or 0, S.TotalKills or 0, sessMin
+            "Lifetime: %d runs  ·  %d kills  ·  %s",
+            S.TotalRuns or 0, S.TotalKills or 0, timeStr
         )
     end)
 end
