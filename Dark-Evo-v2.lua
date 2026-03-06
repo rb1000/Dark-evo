@@ -491,7 +491,7 @@ SessionLabel.Parent=SessionBar
 local HintBar = Instance.new("TextLabel")
 HintBar.Size=UDim2.new(1,0,0,12) HintBar.Position=UDim2.new(0,0,0,330)
 HintBar.BackgroundTransparency=1 HintBar.Text="F8 = toon/verberg  ·  Sleep titlebar = verplaatsen"
-HintBar.TextColor3=Color3.fromRGB(120,120,160) HintBar.TextSize=9
+HintBar.TextColor3=Color3.fromRGB(200,200,230) HintBar.TextSize=9
 HintBar.Font=Enum.Font.Gotham HintBar.Parent=Content
 
 -- ==============================================================================
@@ -561,16 +561,17 @@ end
 
 local function UpdateSessionBar()
     pcall(function()
-        local total = S.TotalTimeSec or 0
-        local h = math.floor(total / 3600)
-        local m = math.floor((total % 3600) / 60)
-        local sc = total % 60
-        local timeStr
-        if h > 0 then
-            timeStr = string.format("%dh %dm %ds", h, m, sc)
-        else
-            timeStr = string.format("%dm %ds", m, sc)
+        -- TotalTimeSec = afgeronde runs, plus huidige lopende run als die actief is
+        local total = (S.TotalTimeSec or 0)
+        if S.Running and S.Phase == "DUNGEON" and _localRunStart > 0 then
+            total = total + math.floor(tick() - _localRunStart)
         end
+        local h  = math.floor(total / 3600)
+        local m  = math.floor((total % 3600) / 60)
+        local sc = total % 60
+        local timeStr = h > 0
+            and string.format("%dh %dm %ds", h, m, sc)
+            or  string.format("%dm %ds", m, sc)
         SessionLabel.Text = string.format(
             "Lifetime: %d runs  ·  %d kills  ·  %s",
             S.TotalRuns or 0, S.TotalKills or 0, timeStr
@@ -578,11 +579,20 @@ local function UpdateSessionBar()
     end)
 end
 
+-- Live heartbeat voor de session bar (update elke ~1s)
+local _lastBarUpdate = 0
+local _localRunStart = 0  -- hier gedeclareerd zodat de heartbeat er bij kan
+
+RunService.Heartbeat:Connect(function()
+    if tick() - _lastBarUpdate < 1 then return end
+    _lastBarUpdate = tick()
+    UpdateSessionBar()
+end)
+
 -- ==============================================================================
 -- LIVE TIMER
 -- ==============================================================================
 local timerConn = nil
-local _localRunStart = 0
 
 local function StartLiveTimer()
     if timerConn then pcall(function() timerConn:Disconnect() end) timerConn=nil end
