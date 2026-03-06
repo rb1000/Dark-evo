@@ -530,7 +530,8 @@ local function UP(p)
 end
 
 local function UR()
-    pcall(function() VR.Text=S.CurrentRun.."/".. (S.MaxRuns==0 and "∞" or S.MaxRuns) end)
+    -- CurrentRun is 0-based tijdens de run, toon als +1 zodat je "1/∞" ziet ipv "0/∞"
+    pcall(function() VR.Text=(S.CurrentRun+1).."/".. (S.MaxRuns==0 and "∞" or S.MaxRuns) end)
 end
 
 local function UE(a,t)
@@ -578,7 +579,7 @@ local _localRunStart = 0
 local function StartLiveTimer()
     if timerConn then pcall(function() timerConn:Disconnect() end) timerConn=nil end
     _localRunStart = tick()
-    S.RunStart = os.time()  -- os.time() overleeft teleport, tick() niet
+    S.RunStart = os.time()
     SaveState(S)
     timerConn = RunService.Heartbeat:Connect(function()
         if not S.Running or S.Phase ~= "DUNGEON" then
@@ -587,7 +588,9 @@ local function StartLiveTimer()
             return
         end
         local e = math.floor(tick() - _localRunStart)
-        UL(string.format("%d:%02d", math.floor(e/60), e%60))
+        local str = string.format("%d:%02d", math.floor(e/60), e%60)
+        UL(str)  -- Timer (live countdown)
+        UT(str)  -- TIJD ook live bijwerken
     end)
 end
 
