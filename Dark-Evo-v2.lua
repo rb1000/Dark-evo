@@ -83,7 +83,7 @@ local function LoadState()
 
     -- Basis state
     local s = {Running=false, AutoAttack=true, AttackRange=45, Difficulty="Easy",
-               MaxRuns=0, CurrentRun=0, Phase="IDLE", DoorWait=10,
+               MaxRuns=0, CurrentRun=0, Phase="IDLE",
                TotalKills=0, BestTime=nil, RunStart=0,
                TotalRuns=0, TotalTimeSec=0,
                SessionKills=0, SessionRuns=0}
@@ -139,7 +139,7 @@ pcall(function()
 end)
 
 local GUI_WIDTH  = 310
-local GUI_HEIGHT = 390  -- uitgebreider dan v2.2
+local GUI_HEIGHT = 360  -- 30px kleiner door verwijderde deur-rij
 
 local COLORS = {
     BG        = Color3.fromRGB(13, 13, 18),
@@ -443,19 +443,18 @@ DD("Difficulty",{"Easy","Normal","Hard"},S.Difficulty, 22, function(v) S.Difficu
 DD("Runs",{"1","2","3","5","10","25","50","Oneindig"},"Oneindig", 52, function(v)
     S.MaxRuns=v=="Oneindig" and 0 or tonumber(v) S.CurrentRun=0 SaveState(S)
 end)
-DD("Deur wacht",{"8","10","12","15","20"},"10",82, function(v) S.DoorWait=tonumber(v) end)
-TG("Auto Attack", S.AutoAttack, 112, function(v) S.AutoAttack=v end)
-TG("Auto Dash (F)", true, 142, function(v)
+TG("Auto Attack", S.AutoAttack, 82, function(v) S.AutoAttack=v end)
+TG("Auto Dash (F)", true, 112, function(v)
     -- Dash in/uitschakelen
     _G._PeakDashEnabled = v
 end)
 
-Div(174)
+Div(144)
 
 -- LIVE sectie
-Hdr("📊  LIVE", 180)
+Hdr("📊  LIVE", 150)
 
-local STAT_Y = 196
+local STAT_Y = 166
 local VS = StatBox("◉","Status",  0, 0, STAT_Y)
 local VP = StatBox("◈","Fase",    1, 0, STAT_Y)
 local VR = StatBox("↺","Runs",    0, 1, STAT_Y)
@@ -465,32 +464,32 @@ local VB = StatBox("★","Best",    1, 2, STAT_Y)
 local VK = StatBox("☠","Kills",   0, 3, STAT_Y)
 local VL = StatBox("⌛","Timer",  1, 3, STAT_Y)
 
-Div(294)
+Div(264)
 
 -- KNOPPEN rij
-local BtnStart  = Btn("▶  START",  10,  298, 92, COLORS.GREEN)
-local BtnStop   = Btn("■  STOP",   106, 298, 88, COLORS.RED)
-local BtnParty  = Btn("⚑  PARTY", 198, 298, 102, COLORS.PURPLE)
+local BtnStart  = Btn("▶  START",  10,  268, 92, COLORS.GREEN)
+local BtnStop   = Btn("■  STOP",   106, 268, 88, COLORS.RED)
+local BtnParty  = Btn("⚑  PARTY", 198, 268, 102, COLORS.PURPLE)
 
-Div(332)
+Div(302)
 
 -- STATS sessie-overzicht balk onderaan
 local SessionBar = Instance.new("Frame")
-SessionBar.Size=UDim2.new(1,-20,0,18) SessionBar.Position=UDim2.new(0,10,0,338)
+SessionBar.Size=UDim2.new(1,-20,0,18) SessionBar.Position=UDim2.new(0,10,0,308)
 SessionBar.BackgroundColor3=COLORS.STATBG SessionBar.BorderSizePixel=0 SessionBar.Parent=Content
 Instance.new("UICorner",SessionBar).CornerRadius=UDim.new(0,5)
 
 local SessionLabel = Instance.new("TextLabel")
 SessionLabel.Size=UDim2.new(1,-10,1,0) SessionLabel.Position=UDim2.new(0,8,0,0)
 SessionLabel.BackgroundTransparency=1
-SessionLabel.Text="Sessie: 0 runs  ·  0 kills  ·  0m totaal"
+SessionLabel.Text="Lifetime: 0 runs  ·  0 kills  ·  0m 0s"
 SessionLabel.TextColor3=Color3.fromRGB(180,180,220) SessionLabel.TextSize=10
 SessionLabel.Font=Enum.Font.GothamBold SessionLabel.TextXAlignment=Enum.TextXAlignment.Left
 SessionLabel.Parent=SessionBar
 
 -- F8 hint onderaan
 local HintBar = Instance.new("TextLabel")
-HintBar.Size=UDim2.new(1,0,0,12) HintBar.Position=UDim2.new(0,0,0,358)
+HintBar.Size=UDim2.new(1,0,0,12) HintBar.Position=UDim2.new(0,0,0,330)
 HintBar.BackgroundTransparency=1 HintBar.Text="F8 = toon/verberg  ·  Sleep titlebar = verplaatsen"
 HintBar.TextColor3=Color3.fromRGB(120,120,160) HintBar.TextSize=9
 HintBar.Font=Enum.Font.Gotham HintBar.Parent=Content
@@ -670,11 +669,23 @@ local function WaitForLoadingGui(max)
 end
 
 local function WaitForDoor()
-    local w=S.DoorWait or 12 Log("Deur","Wachten "..w.."s")
-    for i=w,1,-1 do
+    -- Wacht niet op een vaste timer maar tot mobs daadwerkelijk geladen zijn
+    local max = 30  -- maximaal 30s wachten
+    local dl = tick() + max
+    Log("Deur", "Wachten op mobs...")
+    while tick() < dl do
         if not S.Running then return end
-        US("Deur in "..i.."s...") task.wait(1)
+        local alive, total = CountEnemies()
+        if total > 0 then
+            Log("Deur", "Mobs geladen: " .. total .. " gevonden")
+            US("Mobs gevonden! Starten...")
+            task.wait(0.5)  -- kort wachten zodat server volledig gesync is
+            return
+        end
+        US("Wacht op mobs... " .. math.ceil(dl - tick()) .. "s")
+        task.wait(0.5)
     end
+    Warn("Deur", "Timeout - geen mobs gevonden, toch doorgaan")
 end
 
 local function IsEndScreenVisible()
