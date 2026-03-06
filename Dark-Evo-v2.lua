@@ -124,20 +124,21 @@ Screen.Name="PeakEvoGui" Screen.ResetOnSpawn=false
 Screen.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
 Screen.Parent=LocalPlayer.PlayerGui
 
--- Achtergrond frame (shadow effect)
-local Shadow = Instance.new("Frame")
-Shadow.Name="Shadow" Shadow.Size=UDim2.new(0,GUI_WIDTH+8,0,GUI_HEIGHT+8)
-Shadow.Position=UDim2.new(0,12,0.5,-GUI_HEIGHT/2-4)
-Shadow.BackgroundColor3=Color3.fromRGB(0,0,0)
-Shadow.BackgroundTransparency=0.6 Shadow.BorderSizePixel=0 Shadow.Parent=Screen
-Instance.new("UICorner",Shadow).CornerRadius=UDim.new(0,12)
-
 local Main = Instance.new("Frame")
 Main.Name="Main" Main.Size=UDim2.new(0,GUI_WIDTH,0,GUI_HEIGHT)
 Main.Position=UDim2.new(0,16,0.5,-GUI_HEIGHT/2)
 Main.BackgroundColor3=COLORS.BG
 Main.BorderSizePixel=0 Main.Active=true Main.Draggable=true Main.Parent=Screen
 Instance.new("UICorner",Main).CornerRadius=UDim.new(0,10)
+
+-- Shadow als child van Main zodat hij automatisch mee beweegt bij drag
+local Shadow = Instance.new("Frame")
+Shadow.Name="Shadow" Shadow.Size=UDim2.new(1,8,1,8)
+Shadow.Position=UDim2.new(0,-4,0,-4)
+Shadow.BackgroundColor3=Color3.fromRGB(0,0,0)
+Shadow.BackgroundTransparency=0.6 Shadow.BorderSizePixel=0
+Shadow.ZIndex=Main.ZIndex-1 Shadow.Parent=Main
+Instance.new("UICorner",Shadow).CornerRadius=UDim.new(0,14)
 
 -- Gradient achtergrond accent
 local BgGrad = Instance.new("UIGradient")
@@ -240,7 +241,6 @@ local MINI_HEIGHT = 36
 local function SetGuiVisible(v)
     isVisible = v
     Main.Visible = v
-    Shadow.Visible = v
 end
 
 local function SetMinimized(mini)
@@ -250,9 +250,7 @@ local function SetMinimized(mini)
     TweenService:Create(Main, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
         Size = UDim2.new(0, GUI_WIDTH, 0, targetH)
     }):Play()
-    TweenService:Create(Shadow, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-        Size = UDim2.new(0, GUI_WIDTH+8, 0, targetH+8)
-    }):Play()
+    -- Shadow schaalt automatisch mee omdat hij 1,8 / 1,8 relatief is
     BtnMinimize.Text = mini and "▲" or "─"
 end
 
@@ -921,6 +919,26 @@ end
 local function ClearDungeon()
     Log("Dungeon","TP-per-enemy clear gestart")
     local timeout = time() + 300
+    local totalMobsAtStart = 0  -- vastgelegde beginwaarde voor correcte teller
+
+    -- Tel beginaantal voor de UI
+    pcall(function()
+        local st = Workspace:FindFirstChild("Stage") if not st then return end
+        for _, map in pairs(st:GetChildren()) do
+            if map.Name ~= "baseStage" then
+                local f = map:FindFirstChild("monster") or map:FindFirstChild("Enemies")
+                if f then
+                    for _, mob in pairs(f:GetChildren()) do
+                        pcall(function()
+                            local h = mob:FindFirstChild("Humanoid")
+                            if h and h.Health > 0 then totalMobsAtStart += 1 end
+                        end)
+                    end
+                end
+            end
+        end
+    end)
+    Log("Dungeon","Start mobcount: "..totalMobsAtStart)
 
     while S.Running and time() < timeout do
         if IsEndScreenVisible() then
@@ -959,7 +977,7 @@ local function ClearDungeon()
             return
         end
 
-        UE(#aliveMobs, #aliveMobs)
+        UE(#aliveMobs, totalMobsAtStart > 0 and totalMobsAtStart or #aliveMobs)
         Log("Dungeon", #aliveMobs .. " mobs over")
 
         for _, mob in ipairs(aliveMobs) do
@@ -991,7 +1009,6 @@ local function ClearDungeon()
                 end)
 
                 Attack(mob)
-                if _G._PeakDashEnabled ~= false then TryDash() end
                 task.wait(0.15)
 
                 if hum.Health < healthBefore then
@@ -1123,9 +1140,7 @@ local function RunLobbyPhase()
             pcall(function()
                 root.CFrame = CFrame.new(step.Pos)
             end)
-            task.wait(0.1)
-            if _G._PeakDashEnabled ~= false then TryDash() end
-            task.wait(0.1)
+            task.wait(0.2)
         end
     else
         Log("Lobby","Al bij eindpunt, route overgeslagen")
