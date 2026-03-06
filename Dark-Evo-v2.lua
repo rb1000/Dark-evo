@@ -661,44 +661,107 @@ local function Walk(targetPos)
 end
 
 -- ==============================================================================
--- DUNGEON CLEAR
+-- DUNGEON CLEAR - TP PER ENEMY
+-- Teleporteert direct naar elke levende mob, valt aan tot dood, volgende.
 -- ==============================================================================
 local function ClearDungeon()
-    Log("Dungeon","Monster clear gestart")
+    Log("Dungeon","TP-per-enemy clear gestart")
     local timeout = time() + 300
+
     while S.Running and time() < timeout do
         if IsEndScreenVisible() then
-            Log("Dungeon","Eindscherm al zichtbaar")
+            Log("Dungeon","Eindscherm zichtbaar")
             return
         end
-        local enemy = FindEnemy()
-        if not enemy then
-            Log("Dungeon","Geen mobs meer gevonden")
+
+        -- Verzamel ALLE levende mobs
+        local aliveMobs = {}
+        pcall(function()
+            local st = Workspace:FindFirstChild("Stage") if not st then return end
+            for _, map in pairs(st:GetChildren()) do
+                if map.Name ~= "baseStage" then
+                    local f = map:FindFirstChild("monster") or map:FindFirstChild("Enemies")
+                    if f then
+                        for _, mob in pairs(f:GetChildren()) do
+                            pcall(function()
+                                local h = mob:FindFirstChild("Humanoid")
+                                local r = mob:FindFirstChild("HumanoidRootPart")
+                                if h and r and h.Health > 0 then
+                                    table.insert(aliveMobs, mob)
+                                end
+                            end)
+                        end
+                    end
+                end
+            end
+        end)
+
+        if #aliveMobs == 0 then
+            Log("Dungeon","Alle mobs dood")
+            -- Wacht kort op eindscherm trigger van server
+            local waitEnd = time() + 5
+            while time() < waitEnd do
+                if IsEndScreenVisible() then return end
+                task.wait(0.3)
+            end
             return
         end
-        local er = enemy:FindFirstChild("HumanoidRootPart")
-        local hum = enemy:FindFirstChild("Humanoid")
-        if er and hum and hum.Health > 0 then
-            local _,playerHum,root = GetChar()
+
+        UE(#aliveMobs, #aliveMobs)
+        Log("Dungeon", #aliveMobs .. " mobs over")
+
+        -- Loop door elke mob
+        for _, mob in ipairs(aliveMobs) do
+            if not S.Running then return end
+            if IsEndScreenVisible() then return end
+
+            local hum = mob:FindFirstChild("Humanoid")
+            local er  = mob:FindFirstChild("HumanoidRootPart")
+            if not hum or not er or hum.Health <= 0 then continue end
+
+            -- Teleport direct naast de mob
+            local _, playerHum, root = GetChar()
             if not root or not playerHum then return end
-            playerHum:MoveTo(er.Position)
-            TryDash()   -- dash naar mob toe
-            local combatTimeout = time() + 15
+
+            pcall(function()
+                root.CFrame = CFrame.new(er.Position + Vector3.new(2, 0, 0))
+            end)
+            task.wait(0.1)
+
+            -- Aanvallen tot dood (max 20s per mob)
+            local combatTimeout = time() + 20
             repeat
                 if not S.Running then return end
                 if IsEndScreenVisible() then return end
-                Attack(enemy)
-                pcall(function() playerHum:MoveTo(er.Position) end)
+                _, playerHum, root = GetChar()
+                if not root then return end
+
+                -- Blijf naast mob (mob kan bewegen)
+                pcall(function()
+                    root.CFrame = CFrame.new(er.Position + Vector3.new(2, 0, 0))
+                end)
+
+                Attack(mob)
+                TryDash()
                 task.wait(0.15)
-            until not enemy or not enemy.Parent or hum.Health <= 0 or time() > combatTimeout
+            until not mob or not mob.Parent
+                or not hum or hum.Health <= 0
+                or time() > combatTimeout
+
             if hum and hum.Health <= 0 then
                 S.TotalKills += 1
                 SaveState(S)
                 UK()
+                Log("Dungeon","Mob gekild | Totaal: " .. S.TotalKills)
             end
+
+            task.wait(0.05)
         end
-        task.wait(0.1)
+
+        -- Korte pauze voor volgende scan (server sync)
+        task.wait(0.3)
     end
+
     Log("Dungeon","Clear timeout")
 end
 
