@@ -787,7 +787,6 @@ local function RunDungeonPhase()
 
     US("Run "..S.CurrentRun.." | Lopen...")
     ClearDungeon()
-    Walk(DungeonEnd)
     if not S.Running then StopLiveTimer() return end
 
     local endWait = tick()+10
