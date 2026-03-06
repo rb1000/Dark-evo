@@ -558,12 +558,16 @@ local function UL(s)
     pcall(function() VL.Text=s or "-" end)
 end
 
+-- Forward declaration, zodat UpdateSessionBar en timer dezelfde lokale variabele gebruiken.
+local _localRunStart = 0
+
 local function UpdateSessionBar()
     pcall(function()
         local total = (S.TotalTimeSec or 0)
+        local runStart = _localRunStart or 0
         -- Voeg huidige lopende run toe als timer actief is
-        if _localRunStart > 0 and S.Running then
-            total = total + math.floor(tick() - _localRunStart)
+        if runStart > 0 and S.Running then
+            total = total + math.floor(tick() - runStart)
         end
         local h  = math.floor(total / 3600)
         local m  = math.floor((total % 3600) / 60)
@@ -580,7 +584,6 @@ end
 
 -- Live heartbeat voor de session bar (update elke ~1s)
 local _lastBarUpdate = 0
-local _localRunStart = 0  -- hier gedeclareerd zodat de heartbeat er bij kan
 
 RunService.Heartbeat:Connect(function()
     if tick() - _lastBarUpdate < 1 then return end
