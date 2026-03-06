@@ -1,6 +1,6 @@
 -- ============================================================
 -- Peak Evo - RB1000 | Stable Build voor Velocity
--- v2.0 - Crash fix, walk fix, timing fix
+-- v2.2 - F-dash spam, persistente runs/kills/tijd
 -- ============================================================
 
 local Players             = game:GetService("Players")
@@ -17,17 +17,7 @@ local function Warn(m,t) warn("[PeakEvo]["..m.."] "..tostring(t))  end
 
 -- ==============================================================================
 -- AUTO-HERSTART NA TELEPORT
--- Werkt via een persistente watcher-loop die in _G leeft.
--- Controleer elke 2s of de GUI nog bestaat. Zo niet = teleport geweest,
--- herlaad het script automatisch.
---
--- Gebruik in executor (1x uitvoeren):
---   _G._PeakEvoURL = "https://raw.githubusercontent.com/..."
---   loadstring(game:HttpGet(_G._PeakEvoURL))()
 -- ==============================================================================
--- queue_on_teleport: zet het script klaar om opnieuw uitgevoerd te worden
--- na een teleport naar een andere place. Dit is dezelfde methode als Infinity Yield.
--- Werkt in Velocity, Synapse, Fluxus en de meeste andere executors.
 local queueteleport = queue_on_teleport
     or (syn and syn.queue_on_teleport)
     or (fluxus and fluxus.queue_on_teleport)
@@ -36,7 +26,6 @@ local queueteleport = queue_on_teleport
 if queueteleport then
     local url = _G._PeakEvoURL or ""
     if url ~= "" then
-        -- Script dat na teleport uitgevoerd wordt
         local loaderScript = '_G._PeakEvoURL="'..url..'"\nloadstring(game:HttpGet("'..url..'"))()'
         pcall(function() queueteleport(loaderScript) end)
         Log("AutoRestart", "queue_on_teleport ingesteld")
@@ -48,7 +37,7 @@ else
 end
 
 -- ==============================================================================
--- ANTI-AFK - maar 1 connection, nooit dubbel
+-- ANTI-AFK
 -- ==============================================================================
 if not _G._PeakAFK then
     _G._PeakAFK = LocalPlayer.Idled:Connect(function()
@@ -75,7 +64,8 @@ local function LoadState()
     Log("State","Nieuw aangemaakt")
     return {Running=false,AutoAttack=true,AttackRange=45,Difficulty="Easy",
             MaxRuns=0,CurrentRun=0,Phase="IDLE",DoorWait=12,
-            TotalKills=0,BestTime=nil,RunStart=0}
+            TotalKills=0,BestTime=nil,RunStart=0,
+            TotalRuns=0,TotalTimeSec=0}   -- TotalRuns + TotalTime overleven teleports
 end
 
 local S = LoadState()
@@ -84,6 +74,24 @@ SaveState(S)
 local function SetPhase(p) S.Phase=p SaveState(S) Log("Phase","-> "..p) end
 
 Log("Boot","Running="..tostring(S.Running).." Phase="..S.Phase.." Run="..S.CurrentRun)
+
+-- ==============================================================================
+-- F-DASH LOOP
+-- Simuleert de F-toets (dash ability) elke 2 seconden tijdens het lopen.
+-- Werkt alleen als S.Running actief is.
+-- ==============================================================================
+local _lastDash = 0
+local DASH_INTERVAL = 2.05   -- iets meer dan 2s cooldown van het spel
+
+local function TryDash()
+    if tick() - _lastDash < DASH_INTERVAL then return end
+    _lastDash = tick()
+    pcall(function()
+        VirtualInputManager:SendKeyEvent(true,  Enum.KeyCode.F, false, game)
+        task.wait(0.08)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+    end)
+end
 
 -- ==============================================================================
 -- GUI
@@ -100,7 +108,7 @@ Screen.Parent=LocalPlayer.PlayerGui
 
 local Main = Instance.new("Frame")
 Main.Name="Main" Main.Size=UDim2.new(0,300,0,340)
-Main.Position=UDim2.new(0,16,0.5,-170)
+Main.Position=UDim2.new(0,16,0.5,-183)
 Main.BackgroundColor3=Color3.fromRGB(18,18,22)
 Main.BorderSizePixel=0 Main.Active=true Main.Draggable=true Main.Parent=Screen
 Instance.new("UICorner",Main).CornerRadius=UDim.new(0,8)
@@ -363,14 +371,39 @@ end
 -- ==============================================================================
 -- ROUTES
 -- ==============================================================================
+-- Nieuwe lobby route: direct naar party-knop zonder omweg
 local LobbyRoute={
-    {Pos=Vector3.new(-1682.3,6.5,54.2)},
-    {Pos=Vector3.new(-1685.6,6.3,0.1)},
-    {Pos=Vector3.new(-1689.6,22.6,-321.2)},
-    {Pos=Vector3.new(-1686.7,22.6,-319.1)},
-    {Pos=Vector3.new(-1744.0,22.6,-322.5)},
+    {Pos=Vector3.new(-1696, 22.6, -321.6)},
+    {Pos=Vector3.new(-1741.2, 22.8, -322.6)},
 }
+
 local DungeonEnd=Vector3.new(-880.3,31.6,-507.3)
+
+-- ==============================================================================
+-- SLIM STARTPUNT
+-- Zoekt het dichtstbijzijnde waypoint in de route en begint VANAF daar.
+-- Zo loopt hij niet terug als je al ver bent.
+-- ==============================================================================
+local function FindNearestRouteIndex(route)
+    local _,_,root = GetChar()
+    if not root then return 1 end
+    local bestIdx = 1
+    local bestDist = math.huge
+    for i, step in ipairs(route) do
+        local d = (root.Position - step.Pos).Magnitude
+        if d < bestDist then
+            bestDist = d
+            bestIdx = i
+        end
+    end
+    -- Als we al heel dicht bij het eindpunt zijn, sla de hele route over
+    local lastPos = route[#route].Pos
+    if (root.Position - lastPos).Magnitude < 8 then
+        return #route + 1   -- geeft aan: sla alle waypoints over
+    end
+    Log("Route","Dichtstbijzijnde waypoint: "..bestIdx.." (dist="..math.floor(bestDist)..")")
+    return bestIdx
+end
 
 -- ==============================================================================
 -- KLIK
@@ -539,16 +572,11 @@ end
 
 -- ==============================================================================
 -- LOPEN MET COMBAT
--- FIX: MoveTo wordt elke 5s herhaald zodat hij niet terugloopt na timeout.
--- FIX: Loopt altijd naar het DICHTSTBIJZIJNDE punt op de route vooruit,
---      zodat hij niet terugloopt als hij er al bijna is.
--- FIX: Eindscherm check zit VOOR de again-klik, niet erna.
 -- ==============================================================================
 local function Walk(targetPos)
     local char,hum,root=GetChar()
     if not char or not hum or not root then return end
 
-    -- FIX: geef MoveTo elke 5s opnieuw op zodat Roblox timeout niet terugloopt
     local lastMoveTo = 0
     local function RefreshMoveTo()
         if tick()-lastMoveTo > 4.5 then
@@ -566,7 +594,6 @@ local function Walk(targetPos)
     while tick()<timeout do
         if not S.Running then pcall(function() hum:MoveTo(root.Position) end) return end
 
-        -- Stop zodra eindscherm zichtbaar - dit is het echte einde van de run
         if IsEndScreenVisible() then
             Log("Walk","Eindscherm zichtbaar, run klaar")
             pcall(function() hum:MoveTo(root.Position) end)
@@ -576,16 +603,14 @@ local function Walk(targetPos)
         char,hum,root=GetChar()
         if not char or not hum or not root then task.wait(1) return end
 
-        -- Bereikt?
         if (root.Position-targetPos).Magnitude<=4 then
             Log("Walk","Doel bereikt")
             break
         end
 
-        -- Ververs MoveTo elke ~5s zodat hij niet terugloopt
         RefreshMoveTo()
+        TryDash()   -- F-dash elke ~2s tijdens lopen
 
-        -- Enemy counter elke 2s
         if tick()-lastEL>2 then
             local alive,total=CountEnemies() UE(alive,total)
             local nk=totalStart-alive
@@ -609,13 +634,11 @@ local function Walk(targetPos)
                     task.wait(0.15)
                 until tick()>ct or not enemy or not enemy.Parent
                     or not enemy:FindFirstChild("Humanoid") or enemy.Humanoid.Health<=0
-                -- Na gevecht: hervat lopen, reset MoveTo timer zodat hij direct opnieuw stuurt
                 lastMoveTo = 0
                 RefreshMoveTo()
             end
         end
 
-        -- Stuck check
         char,hum,root=GetChar()
         if root then
             if (root.Position-lastPos).Magnitude<0.5 then
@@ -623,7 +646,7 @@ local function Walk(targetPos)
                 if stuckT>20 then
                     pcall(function() hum.Jump=true end)
                     Log("Move","Jump") stuckT=0
-                    lastMoveTo=0 -- reset zodat hij na jump direct opnieuw MoveTo krijgt
+                    lastMoveTo=0
                 end
             else stuckT=0 end
             lastPos=root.Position
@@ -634,81 +657,48 @@ local function Walk(targetPos)
     local alive,total=CountEnemies()
     Log("Combat","Klaar | "..alive.."/"..total.." over") UE(alive,total)
 end
--- ==============================================================================
--- DUNGEON CLEAR (NIEUW)
--- Volgt mobs totdat dungeon leeg is
--- ==============================================================================
 
+-- ==============================================================================
+-- DUNGEON CLEAR
+-- ==============================================================================
 local function ClearDungeon()
-
     Log("Dungeon","Monster clear gestart")
-
     local timeout = time() + 300
-
     while S.Running and time() < timeout do
-
-        -- stop als eindscherm al zichtbaar is
         if IsEndScreenVisible() then
             Log("Dungeon","Eindscherm al zichtbaar")
             return
         end
-
         local enemy = FindEnemy()
-
         if not enemy then
             Log("Dungeon","Geen mobs meer gevonden")
             return
         end
-
         local er = enemy:FindFirstChild("HumanoidRootPart")
         local hum = enemy:FindFirstChild("Humanoid")
-
         if er and hum and hum.Health > 0 then
-
             local _,playerHum,root = GetChar()
             if not root or not playerHum then return end
-
-            -- loop naar mob
             playerHum:MoveTo(er.Position)
-
+            TryDash()   -- dash naar mob toe
             local combatTimeout = time() + 15
-
             repeat
-
                 if not S.Running then return end
                 if IsEndScreenVisible() then return end
-
                 Attack(enemy)
-
-                -- blijf richting mob lopen
-                pcall(function()
-                    playerHum:MoveTo(er.Position)
-                end)
-
+                pcall(function() playerHum:MoveTo(er.Position) end)
                 task.wait(0.15)
-
-            until
-                not enemy
-                or not enemy.Parent
-                or hum.Health <= 0
-                or time() > combatTimeout
-
+            until not enemy or not enemy.Parent or hum.Health <= 0 or time() > combatTimeout
             if hum and hum.Health <= 0 then
                 S.TotalKills += 1
                 SaveState(S)
                 UK()
             end
-
         end
-
         task.wait(0.1)
-
     end
-
     Log("Dungeon","Clear timeout")
-
 end
-
 
 -- ==============================================================================
 -- FASES
@@ -726,15 +716,10 @@ local function RunDungeonPhase()
     Log("Dungeon","Enemies: "..alive.."/"..total) UE(alive,total)
 
     US("Run "..S.CurrentRun.." | Lopen...")
-    -- eerst mobs clearen
     ClearDungeon()
-
-    -- daarna naar eindpunt
     Walk(DungeonEnd)
     if not S.Running then StopLiveTimer() return end
 
-    -- Wacht tot eindscherm echt zichtbaar is voordat we timer stoppen
-    -- (Walk stopt al bij eindscherm, maar voor zekerheid even wachten)
     local endWait = tick()+10
     while tick()<endWait and not IsEndScreenVisible() do
         task.wait(0.3)
@@ -752,22 +737,26 @@ local function RunDungeonPhase()
         Log("Dungeon","Nieuwe best: "..timeStr)
     end
 
+    -- Persistente tellers: overleven teleports via _G/shared
+    S.TotalRuns = (S.TotalRuns or 0) + 1
+    S.TotalTimeSec = (S.TotalTimeSec or 0) + elapsed
     S.CurrentRun+=1 SaveState(S) UR()
-    Log("Dungeon","=== Run "..S.CurrentRun.." klaar | Kills: "..S.TotalKills.." ===")
+
+    local totalTimeStr = string.format("%dh %dm",
+        math.floor(S.TotalTimeSec/3600),
+        math.floor((S.TotalTimeSec%3600)/60))
+    Log("Dungeon","=== Run "..S.CurrentRun.." klaar | Kills: "..S.TotalKills.." | TotalRuns: "..S.TotalRuns.." | TotalTijd: "..totalTimeStr.." ===")
 
     if S.MaxRuns>0 and S.CurrentRun>S.MaxRuns then
         US("Klaar! "..S.MaxRuns.." runs") Log("Dungeon","Max bereikt")
         S.Running=false SaveState(S) UP("IDLE") UE(nil,nil) return
     end
 
-    -- Wacht op Again knop - alleen klikken als eindscherm zichtbaar is
     US("Wacht Again...") Log("Dungeon","Zoeken againbtn (max 40s)...")
     local dl=tick()+40
     while tick()<dl do
         if not S.Running then return end
-        -- Controleer eerst of eindscherm nog zichtbaar is
         if not IsEndScreenVisible() then
-            -- Eindscherm verdwenen zonder dat wij klikten = al geteleporteerd
             Log("Dungeon","Eindscherm verdwenen, al geteleporteerd")
             SetPhase("DUNGEON")
             return
@@ -776,7 +765,6 @@ local function RunDungeonPhase()
         if b then
             Log("Dungeon","Again gevonden! Klikken...")
             ClickObj(b)
-            -- Wacht tot eindscherm verdwijnt (= teleport begint)
             local tw=tick()+8
             while tick()<tw do
                 task.wait(0.3)
@@ -795,24 +783,42 @@ local function RunDungeonPhase()
     S.Running=false SaveState(S) UP("IDLE") StopLiveTimer()
 end
 
+-- ==============================================================================
+-- LOBBY FASE - SLIM STARTPUNT
+-- Start vanaf het dichtstbijzijnde waypoint, loopt nooit terug
+-- ==============================================================================
 local function RunLobbyPhase()
     UP("LOBBY") Log("Lobby","Start")
     WaitForWorldLoad(15) if not S.Running then return end
     US("Lobby route...")
+
     local _,hum,_=GetChar()
     if not hum then S.Running=false SaveState(S) return end
-    for i,step in ipairs(LobbyRoute) do
-        if not S.Running then return end
-        Log("Lobby","Stap "..i)
-        pcall(function()
-            hum:MoveTo(step.Pos)
-            local t=tick() local done=false
-            local conn=hum.MoveToFinished:Connect(function() done=true end)
-            while not done and tick()-t<6 do task.wait(0.1) end
-            pcall(function() conn:Disconnect() end)
-        end)
-        task.wait(0.1)
+
+    -- Bepaal slim startpunt: ga naar het dichtstbijzijnde waypoint
+    local startIdx = FindNearestRouteIndex(LobbyRoute)
+    Log("Lobby","Route start bij waypoint "..startIdx.." van "..#LobbyRoute)
+
+    if startIdx <= #LobbyRoute then
+        for i = startIdx, #LobbyRoute do
+            if not S.Running then return end
+            local step = LobbyRoute[i]
+            Log("Lobby","Stap "..i)
+            US("Lobby stap "..i.."/"..#LobbyRoute)
+            pcall(function()
+                hum:MoveTo(step.Pos)
+                local t=tick() local done=false
+                local conn=hum.MoveToFinished:Connect(function() done=true end)
+                while not done and tick()-t<6 do task.wait(0.1) end
+                pcall(function() conn:Disconnect() end)
+            end)
+            task.wait(0.1)
+        end
+    else
+        Log("Lobby","Al bij eindpunt, route overgeslagen")
+        US("Al bij party-knop!")
     end
+
     if not S.Running then return end
     UP("PARTY") US("Party aanmaken...")
     local ok=TryCreateParty()
@@ -852,10 +858,14 @@ end
 -- ==============================================================================
 BtnStart.MouseButton1Click:Connect(function()
     if S.Running then US("Al bezig!") return end
+    -- CurrentRun en TotalKills resetten voor nieuwe sessie
+    -- TotalRuns en TotalTimeSec blijven staan (persistent over alle sessies)
     S.Running=true S.CurrentRun=0 S.TotalKills=0
+    if not S.TotalRuns then S.TotalRuns=0 end
+    if not S.TotalTimeSec then S.TotalTimeSec=0 end
     SaveState(S) UP("LOBBY")
     UR() UK() UE(nil,nil) UT(nil) UL(nil)
-    Log("Control","START") task.spawn(AutoStart)
+    Log("Control","START | TotalRuns tot nu: "..S.TotalRuns) task.spawn(AutoStart)
 end)
 
 BtnStop.MouseButton1Click:Connect(function()
@@ -874,6 +884,7 @@ end)
 -- ==============================================================================
 US("Idle") UR() UP(S.Phase) UK() UL(nil)
 if S.BestTime then UB(S.BestTime) end
+Log("Boot","TotalRuns="..(S.TotalRuns or 0).." TotalTijd="..(S.TotalTimeSec or 0).."s Kills="..S.TotalKills)
 
 task.spawn(function()
     task.wait(2)
