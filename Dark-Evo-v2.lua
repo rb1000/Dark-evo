@@ -371,7 +371,12 @@ end
 -- ==============================================================================
 -- ROUTES
 -- ==============================================================================
--- Nieuwe lobby route: direct naar party-knop zonder omweg
+-- GetChar hier zodat FindNearestRouteIndex het kan gebruiken
+local function GetChar()
+    local c=LocalPlayer.Character if not c then return nil,nil,nil end
+    return c,c:FindFirstChild("Humanoid"),c:FindFirstChild("HumanoidRootPart")
+end
+
 local LobbyRoute={
     {Pos=Vector3.new(-1696, 22.6, -321.6)},
     {Pos=Vector3.new(-1741.2, 22.8, -322.6)},
@@ -523,11 +528,6 @@ end
 -- ==============================================================================
 -- COMBAT
 -- ==============================================================================
-local function GetChar()
-    local c=LocalPlayer.Character if not c then return nil,nil,nil end
-    return c,c:FindFirstChild("Humanoid"),c:FindFirstChild("HumanoidRootPart")
-end
-
 local function FindEnemy()
     local _,_,root=GetChar() if not root then return nil end
     local mp=root.Position local cl,md=nil,S.AttackRange
