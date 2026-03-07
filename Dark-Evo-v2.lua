@@ -377,19 +377,6 @@ UserInputService.InputBegan:Connect(function(input, gp)
     if input.KeyCode == Enum.KeyCode.F8 then
         SetGuiVisible(not isVisible)
         Log("GUI", isVisible and "Zichtbaar" or "Verborgen")
-        return
-    end
-    if input.KeyCode == Enum.KeyCode.F6 then
-        local c = LocalPlayer.Character
-        local root = c and c:FindFirstChild("HumanoidRootPart")
-        if root then
-            local p = root.Position
-            S.AfkAnchor = {x=p.X,y=p.Y,z=p.Z}
-            SaveState(S, true)
-            Log("AFK",string.format("Anchor gezet via F6: %.1f %.1f %.1f", p.X, p.Y, p.Z))
-        else
-            Warn("AFK","Geen character/root om anchor te zetten")
-        end
     end
 end)
 
@@ -503,7 +490,7 @@ end)
 local ForceLabel = Instance.new("TextLabel")
 ForceLabel.Size=UDim2.new(1,-20,0,12) ForceLabel.Position=UDim2.new(0,10,0,114)
 ForceLabel.BackgroundTransparency=1
-ForceLabel.Text="Auto Attack + Auto Dash: altijd aan | F6 = set AFK anchor"
+ForceLabel.Text="Auto Attack + Auto Dash: altijd aan"
 ForceLabel.TextColor3=COLORS.TEXTDIM ForceLabel.TextSize=9
 ForceLabel.Font=Enum.Font.Gotham ForceLabel.TextXAlignment=Enum.TextXAlignment.Left
 ForceLabel.Parent=Content
@@ -551,25 +538,18 @@ local BtnParty  = Btn("⚑  PARTY", 198, 266, 102, COLORS.PURPLE)
 
 Div(300)
 
--- MINI LOG (met compact/full modus)
+-- MINI LOG
 local LogPanel = Instance.new("Frame")
 LogPanel.Size=UDim2.new(1,-20,0,64) LogPanel.Position=UDim2.new(0,10,0,304)
 LogPanel.BackgroundColor3=Color3.fromRGB(18,18,28) LogPanel.BorderSizePixel=0 LogPanel.Parent=Content
 Instance.new("UICorner",LogPanel).CornerRadius=UDim.new(0,5)
 
-local BtnLogMode = Instance.new("TextButton")
-BtnLogMode.Size=UDim2.new(0,56,0,12) BtnLogMode.Position=UDim2.new(1,-60,0,2)
-BtnLogMode.BackgroundColor3=Color3.fromRGB(36,36,56) BtnLogMode.BorderSizePixel=0
-BtnLogMode.Text="LOG:CMP" BtnLogMode.TextColor3=COLORS.TEXTDIM BtnLogMode.TextSize=8
-BtnLogMode.Font=Enum.Font.GothamBold BtnLogMode.AutoButtonColor=false BtnLogMode.Parent=LogPanel
-Instance.new("UICorner",BtnLogMode).CornerRadius=UDim.new(0,3)
-
 local LogLines = {}
-for i=1,6 do
+for i=1,4 do
     local l = Instance.new("TextLabel")
-    l.Size=UDim2.new(1,-10,0,10) l.Position=UDim2.new(0,6,0,(i-1)*10+14)
+    l.Size=UDim2.new(1,-10,0,12) l.Position=UDim2.new(0,6,0,(i-1)*12+8)
     l.BackgroundTransparency=1 l.Text="-"
-    l.TextColor3=Color3.fromRGB(210,210,230) l.TextSize=9
+    l.TextColor3=Color3.fromRGB(210,210,230) l.TextSize=10
     l.Font=Enum.Font.Code l.TextXAlignment=Enum.TextXAlignment.Left
     l.Parent=LogPanel
     LogLines[i]=l
@@ -599,57 +579,31 @@ Instance.new("UICorner",BtnResetLifetime).CornerRadius=UDim.new(0,4)
 -- F8 hint onderaan
 local HintBar = Instance.new("TextLabel")
 HintBar.Size=UDim2.new(1,0,0,12) HintBar.Position=UDim2.new(0,0,0,392)
-HintBar.BackgroundTransparency=1 HintBar.Text="F6=set AFK anchor | F8=show/hide | LOG=compact/full"
+HintBar.BackgroundTransparency=1 HintBar.Text="F8 = toon/verberg"
 HintBar.TextColor3=Color3.fromRGB(255,255,255) HintBar.TextSize=10
 HintBar.Font=Enum.Font.Gotham HintBar.Parent=Content
 
 local _miniLogItems = {}
-local _logMode = "compact"
 
-local function RenderMiniLog()
-    local lineCount = (_logMode == "full") and 6 or 4
-    local textSize  = (_logMode == "full") and 8 or 10
-    local lineStep  = (_logMode == "full") and 8 or 12
-    local maxChars  = (_logMode == "full") and 84 or 56
-
-    BtnLogMode.Text = (_logMode == "full") and "LOG:FULL" or "LOG:CMP"
-    BtnLogMode.BackgroundColor3 = (_logMode == "full") and Color3.fromRGB(46,46,70) or Color3.fromRGB(36,36,56)
-
-    for i=1,#LogLines do
-        local lbl = LogLines[i]
-        lbl.Visible = i <= lineCount
-        lbl.TextSize = textSize
-        lbl.Position = UDim2.new(0,6,0,14 + (i-1)*lineStep)
-        if i <= lineCount then
-            local item = _miniLogItems[i]
-            if item then
-                local text = item.t
-                if #text > maxChars then text = string.sub(text,1,maxChars).."..." end
-                lbl.Text = text
-                lbl.TextColor3 = item.c
-            else
-                lbl.Text = "-"
-                lbl.TextColor3 = COLORS.TEXTDIM
-            end
+PushMiniLog = function(txt, color)
+    local line = tostring(txt or "-"):gsub("[%c\r\n]+"," ")
+    if #line > 56 then line = string.sub(line,1,56).."..." end
+    table.insert(_miniLogItems, 1, {
+        t = line,
+        c = color or COLORS.TEXTDIM
+    })
+    while #_miniLogItems > 4 do table.remove(_miniLogItems, #_miniLogItems) end
+    for i=1,4 do
+        local item = _miniLogItems[i]
+        if item then
+            LogLines[i].Text = item.t
+            LogLines[i].TextColor3 = item.c
+        else
+            LogLines[i].Text = "-"
+            LogLines[i].TextColor3 = COLORS.TEXTDIM
         end
     end
 end
-
-PushMiniLog = function(txt, color)
-    table.insert(_miniLogItems, 1, {
-        t = tostring(txt or "-"):gsub("[%c\r\n]+"," "),
-        c = color or COLORS.TEXTDIM
-    })
-    while #_miniLogItems > 20 do table.remove(_miniLogItems, #_miniLogItems) end
-    RenderMiniLog()
-end
-
-BtnLogMode.MouseButton1Click:Connect(function()
-    _logMode = (_logMode == "compact") and "full" or "compact"
-    RenderMiniLog()
-end)
-
-RenderMiniLog()
 
 -- ==============================================================================
 -- FASE KLEUREN
