@@ -77,6 +77,10 @@ local function WriteStateFile(s)
             BestTime     = s.BestTime     or nil,
             Difficulty   = s.Difficulty   or "Easy",
             MaxRuns      = s.MaxRuns      or 0,
+            Mode         = s.Mode         or "Dungeon",
+            AfkRange     = s.AfkRange     or 120,
+            AfkLeash     = s.AfkLeash     or 45,
+            AfkAnchor    = s.AfkAnchor    or nil,
         }
         writefile(SAVE_FILE, game:GetService("HttpService"):JSONEncode(data))
     end)
@@ -127,7 +131,8 @@ local function LoadState()
                MaxRuns=0, CurrentRun=0, Phase="IDLE",
                TotalKills=0, BestTime=nil, RunStart=0,
                TotalRuns=0, TotalTimeSec=0,
-               SessionKills=0, SessionRuns=0, RunKills=0}
+               SessionKills=0, SessionRuns=0, RunKills=0,
+               Mode="Dungeon", AfkRange=120, AfkLeash=45, AfkAnchor=nil}
 
     -- Lifetime stats uit bestand laden (overleeft teleport)
     pcall(function()
@@ -142,6 +147,10 @@ local function LoadState()
                 s.BestTime     = data.BestTime     or nil
                 s.Difficulty   = data.Difficulty   or s.Difficulty
                 s.MaxRuns      = tonumber(data.MaxRuns) or 0
+                s.Mode         = data.Mode or s.Mode
+                s.AfkRange     = tonumber(data.AfkRange) or s.AfkRange
+                s.AfkLeash     = tonumber(data.AfkLeash) or s.AfkLeash
+                if type(data.AfkAnchor) == "table" then s.AfkAnchor = data.AfkAnchor end
                 Log("State","Bestand geladen | Runs="..s.TotalRuns.." Kills="..s.TotalKills)
             end
         end
@@ -151,6 +160,9 @@ local function LoadState()
 end
 
 local S = LoadState()
+if S.Mode ~= "Dungeon" and S.Mode ~= "AFK Mobs" and S.Mode ~= "AFK Boss" then
+    S.Mode = "Dungeon"
+end
 _G._PeakDashEnabled = true
 SaveState(S)
 
@@ -183,7 +195,7 @@ pcall(function()
 end)
 
 local GUI_WIDTH  = 310
-local GUI_HEIGHT = 410  -- compact, met ruimte voor logpaneel + progress
+local GUI_HEIGHT = 452  -- extra ruimte voor mode + log + progress
 local GUI_SCALE  = 1.20 -- algemene schaal voor betere leesbaarheid
 
 local COLORS = {
@@ -365,6 +377,19 @@ UserInputService.InputBegan:Connect(function(input, gp)
     if input.KeyCode == Enum.KeyCode.F8 then
         SetGuiVisible(not isVisible)
         Log("GUI", isVisible and "Zichtbaar" or "Verborgen")
+        return
+    end
+    if input.KeyCode == Enum.KeyCode.F6 then
+        local c = LocalPlayer.Character
+        local root = c and c:FindFirstChild("HumanoidRootPart")
+        if root then
+            local p = root.Position
+            S.AfkAnchor = {x=p.X,y=p.Y,z=p.Z}
+            SaveState(S, true)
+            Log("AFK",string.format("Anchor gezet via F6: %.1f %.1f %.1f", p.X, p.Y, p.Z))
+        else
+            Warn("AFK","Geen character/root om anchor te zetten")
+        end
     end
 end)
 
@@ -470,21 +495,25 @@ end)
 DD("Runs",{"1","2","3","5","10","25","50","Oneindig"},RunsToLabel(S.MaxRuns), 52, function(v)
     S.MaxRuns=v=="Oneindig" and 0 or tonumber(v) S.CurrentRun=0 SaveState(S)
 end)
+DD("Mode",{"Dungeon","AFK Mobs","AFK Boss"},S.Mode or "Dungeon", 82, function(v)
+    S.Mode = v
+    SaveState(S, true)
+end)
 
 local ForceLabel = Instance.new("TextLabel")
-ForceLabel.Size=UDim2.new(1,-20,0,12) ForceLabel.Position=UDim2.new(0,10,0,84)
+ForceLabel.Size=UDim2.new(1,-20,0,12) ForceLabel.Position=UDim2.new(0,10,0,114)
 ForceLabel.BackgroundTransparency=1
-ForceLabel.Text="Auto Attack + Auto Dash: altijd aan"
+ForceLabel.Text="Auto Attack + Auto Dash: altijd aan | F6 = set AFK anchor"
 ForceLabel.TextColor3=COLORS.TEXTDIM ForceLabel.TextSize=9
 ForceLabel.Font=Enum.Font.Gotham ForceLabel.TextXAlignment=Enum.TextXAlignment.Left
 ForceLabel.Parent=Content
 
-Div(102)
+Div(132)
 
 -- LIVE sectie
-Hdr("LIVE", 108)
+Hdr("LIVE", 138)
 
-local STAT_Y = 124
+local STAT_Y = 154
 local VS = StatBox("◉","Status",  0, 0, STAT_Y)
 local VP = StatBox("◈","Fase",    1, 0, STAT_Y)
 local VR = StatBox("↺","Runs",    0, 1, STAT_Y)
@@ -498,7 +527,7 @@ VK.TextSize = 9
 VK.TextYAlignment = Enum.TextYAlignment.Top
 
 local EnemyBar = Instance.new("Frame")
-EnemyBar.Size=UDim2.new(1,-20,0,8) EnemyBar.Position=UDim2.new(0,10,0,220)
+EnemyBar.Size=UDim2.new(1,-20,0,8) EnemyBar.Position=UDim2.new(0,10,0,250)
 EnemyBar.BackgroundColor3=Color3.fromRGB(34,34,52) EnemyBar.BorderSizePixel=0 EnemyBar.Parent=Content
 Instance.new("UICorner",EnemyBar).CornerRadius=UDim.new(1,0)
 
@@ -508,23 +537,23 @@ EnemyBarFill.BackgroundColor3=COLORS.GREEN EnemyBarFill.BorderSizePixel=0 EnemyB
 Instance.new("UICorner",EnemyBarFill).CornerRadius=UDim.new(1,0)
 
 local EnemyPct = Instance.new("TextLabel")
-EnemyPct.Size=UDim2.new(0,50,0,10) EnemyPct.Position=UDim2.new(1,-50,0,209)
+EnemyPct.Size=UDim2.new(0,50,0,10) EnemyPct.Position=UDim2.new(1,-50,0,239)
 EnemyPct.BackgroundTransparency=1 EnemyPct.Text="0%" EnemyPct.TextColor3=COLORS.TEXTDIM
 EnemyPct.TextSize=9 EnemyPct.Font=Enum.Font.GothamBold EnemyPct.TextXAlignment=Enum.TextXAlignment.Right
 EnemyPct.Parent=Content
 
-Div(230)
+Div(260)
 
 -- KNOPPEN rij
-local BtnStart  = Btn("▶  START",  10,  236, 92, COLORS.GREEN)
-local BtnStop   = Btn("■  STOP",   106, 236, 88, COLORS.RED)
-local BtnParty  = Btn("⚑  PARTY", 198, 236, 102, COLORS.PURPLE)
+local BtnStart  = Btn("▶  START",  10,  266, 92, COLORS.GREEN)
+local BtnStop   = Btn("■  STOP",   106, 266, 88, COLORS.RED)
+local BtnParty  = Btn("⚑  PARTY", 198, 266, 102, COLORS.PURPLE)
 
-Div(270)
+Div(300)
 
 -- MINI LOG (met compact/full modus)
 local LogPanel = Instance.new("Frame")
-LogPanel.Size=UDim2.new(1,-20,0,64) LogPanel.Position=UDim2.new(0,10,0,274)
+LogPanel.Size=UDim2.new(1,-20,0,64) LogPanel.Position=UDim2.new(0,10,0,304)
 LogPanel.BackgroundColor3=Color3.fromRGB(18,18,28) LogPanel.BorderSizePixel=0 LogPanel.Parent=Content
 Instance.new("UICorner",LogPanel).CornerRadius=UDim.new(0,5)
 
@@ -548,7 +577,7 @@ end
 
 -- STATS sessie-overzicht balk onderaan
 local SessionBar = Instance.new("Frame")
-SessionBar.Size=UDim2.new(1,-20,0,18) SessionBar.Position=UDim2.new(0,10,0,340)
+SessionBar.Size=UDim2.new(1,-20,0,18) SessionBar.Position=UDim2.new(0,10,0,370)
 SessionBar.BackgroundColor3=COLORS.STATBG SessionBar.BorderSizePixel=0 SessionBar.Parent=Content
 Instance.new("UICorner",SessionBar).CornerRadius=UDim.new(0,5)
 
@@ -569,8 +598,8 @@ Instance.new("UICorner",BtnResetLifetime).CornerRadius=UDim.new(0,4)
 
 -- F8 hint onderaan
 local HintBar = Instance.new("TextLabel")
-HintBar.Size=UDim2.new(1,0,0,12) HintBar.Position=UDim2.new(0,0,0,362)
-HintBar.BackgroundTransparency=1 HintBar.Text="F8 = toon/verberg | LOG knop = compact/full"
+HintBar.Size=UDim2.new(1,0,0,12) HintBar.Position=UDim2.new(0,0,0,392)
+HintBar.BackgroundTransparency=1 HintBar.Text="F6=set AFK anchor | F8=show/hide | LOG=compact/full"
 HintBar.TextColor3=Color3.fromRGB(255,255,255) HintBar.TextSize=10
 HintBar.Font=Enum.Font.Gotham HintBar.Parent=Content
 
@@ -630,6 +659,7 @@ local FaseKleur={
     LOBBY   = Color3.fromRGB(80,  180, 255),
     PARTY   = Color3.fromRGB(255, 200, 80),
     DUNGEON = Color3.fromRGB(80,  220, 120),
+    AFK     = Color3.fromRGB(90,  180, 255),
 }
 
 -- ==============================================================================
@@ -935,6 +965,26 @@ local function GetChar()
     return c,c:FindFirstChild("Humanoid"),c:FindFirstChild("HumanoidRootPart")
 end
 
+local function GetAfkAnchorVector()
+    local a = S.AfkAnchor
+    if type(a) ~= "table" then return nil end
+    local x,y,z = tonumber(a.x), tonumber(a.y), tonumber(a.z)
+    if not x or not y or not z then return nil end
+    return Vector3.new(x,y,z)
+end
+
+local function EnsureAfkAnchor()
+    local anchor = GetAfkAnchorVector()
+    if anchor then return anchor end
+    local _,_,root = GetChar()
+    if not root then return nil end
+    local p = root.Position
+    S.AfkAnchor = {x=p.X,y=p.Y,z=p.Z}
+    SaveState(S, true)
+    Log("AFK","Anchor auto gezet op huidige positie")
+    return p
+end
+
 local LobbyRoute={
     {Pos=Vector3.new(-1696, 22.6, -321.6)},
     {Pos=Vector3.new(-1741.2, 22.8, -322.6)},
@@ -1132,6 +1182,96 @@ local function FindAnyAliveEnemy()
     return cl
 end
 
+local function IsBossName(name)
+    local n = string.lower(tostring(name or ""))
+    return string.find(n, "boss", 1, true)
+        or string.find(n, "king", 1, true)
+        or string.find(n, "lord", 1, true)
+        or string.find(n, "elite", 1, true)
+        or string.find(n, "titan", 1, true)
+end
+
+local function GatherFarmEnemies(anchorPos, range)
+    local result = {}
+    local seen = {}
+    range = tonumber(range) or 120
+
+    local function TryAddModel(mob)
+        if not mob or seen[mob] then return end
+        seen[mob] = true
+        if mob == LocalPlayer.Character then return end
+        if Players:GetPlayerFromCharacter(mob) then return end
+        local h = mob:FindFirstChild("Humanoid")
+        local r = mob:FindFirstChild("HumanoidRootPart")
+        if not h or not r or h.Health <= 0 then return end
+        if anchorPos and (r.Position - anchorPos).Magnitude > range then return end
+        table.insert(result, mob)
+    end
+
+    local function ScanContainer(container, deep)
+        if not container then return end
+        if deep then
+            for _,obj in ipairs(container:GetDescendants()) do
+                if obj:IsA("Model") then TryAddModel(obj) end
+            end
+        else
+            for _,obj in ipairs(container:GetChildren()) do
+                if obj:IsA("Model") then TryAddModel(obj) end
+            end
+        end
+    end
+
+    pcall(function()
+        local st = Workspace:FindFirstChild("Stage")
+        if st then
+            for _,map in pairs(st:GetChildren()) do
+                if string.sub(map.Name,1,3)=="map" then
+                    ScanContainer(map:FindFirstChild("monster"), false)
+                    ScanContainer(map:FindFirstChild("Enemies"), false)
+                end
+            end
+        end
+    end)
+
+    if #result == 0 then
+        pcall(function()
+            local names = {"Enemies","Enemy","Mobs","mobs","Monster","Monsters","Bosses","NPCs"}
+            for _,n in ipairs(names) do
+                ScanContainer(Workspace:FindFirstChild(n), true)
+            end
+        end)
+    end
+
+    return result
+end
+
+local function PickAfkTarget(anchorPos, mode)
+    local candidates = GatherFarmEnemies(anchorPos, S.AfkRange or 120)
+    local preferBoss = (mode == "AFK Boss")
+    local target, fallback = nil, nil
+    local bestDist, bestFallback = math.huge, math.huge
+
+    for _,mob in ipairs(candidates) do
+        local r = mob:FindFirstChild("HumanoidRootPart")
+        if r then
+            local d = anchorPos and (r.Position-anchorPos).Magnitude or 0
+            local isBoss = IsBossName(mob.Name)
+            local preferred = (preferBoss and isBoss) or ((not preferBoss) and (not isBoss))
+            if preferred then
+                if d < bestDist then
+                    bestDist = d
+                    target = mob
+                end
+            elseif d < bestFallback then
+                bestFallback = d
+                fallback = mob
+            end
+        end
+    end
+
+    return target or fallback, #candidates
+end
+
 local _lastCapture=0
 local function Attack(target)
     pcall(function()
@@ -1241,6 +1381,86 @@ local function Walk(targetPos)
     local alive,total=CountEnemies()
     Log("Combat","Klaar | "..alive.."/"..total.." over")
     UpdateEnemyProgress(alive)
+end
+
+local function RunAfkFarmMode()
+    UP("AFK")
+    _countedMobs = {}
+    local anchor = EnsureAfkAnchor()
+    if not anchor then
+        Warn("AFK","Geen anchor beschikbaar, stop")
+        S.Running = false
+        SaveState(S, true)
+        UP("IDLE")
+        return
+    end
+
+    US("AFK farm: "..tostring(S.Mode))
+    local idleSince = tick()
+
+    while S.Running and (S.Mode == "AFK Mobs" or S.Mode == "AFK Boss") do
+        local _,_,root = GetChar()
+        if not root then
+            US("AFK: wacht karakter...")
+            task.wait(0.4)
+            continue
+        end
+
+        anchor = EnsureAfkAnchor() or root.Position
+        local leash = tonumber(S.AfkLeash) or 45
+        if (root.Position - anchor).Magnitude > leash then
+            pcall(function()
+                root.CFrame = CFrame.new(anchor + Vector3.new(0,2,0))
+            end)
+            Log("AFK","Return naar anchor")
+            task.wait(0.15)
+        end
+
+        local target, aliveCount = PickAfkTarget(anchor, S.Mode)
+        UpdateEnemyProgress(aliveCount)
+        if not target then
+            if tick() - idleSince > 8 then
+                US("AFK: geen targets in range")
+                idleSince = tick() - 6
+            end
+            task.wait(0.25)
+            continue
+        end
+
+        idleSince = tick()
+        local deadline = tick() + 18
+        repeat
+            if not S.Running then return end
+            local h = target:FindFirstChild("Humanoid")
+            local r = target:FindFirstChild("HumanoidRootPart")
+            _,_,root = GetChar()
+            if not root or not h or h.Health <= 0 or not r or not target.Parent then break end
+            pcall(function()
+                root.CFrame = CFrame.new(r.Position + Vector3.new(2,0,0))
+            end)
+            Attack(target)
+            TryDash()
+            task.wait(0.12)
+        until tick() > deadline
+
+        local hAfter = target:FindFirstChild("Humanoid")
+        local dead = (not target.Parent) or (not hAfter) or (hAfter.Health <= 0)
+        if dead and not _countedMobs[target] then
+            _countedMobs[target] = true
+            S.TotalKills = (S.TotalKills or 0) + 1
+            S.SessionKills = (S.SessionKills or 0) + 1
+            S.RunKills = (S.RunKills or 0) + 1
+            SaveState(S)
+            UK()
+            Log("AFK","Kill | Mode: "..tostring(S.Mode).." | RunKills: "..(S.RunKills or 0).." | Life: "..(S.TotalKills or 0))
+        end
+
+        task.wait(0.05)
+    end
+
+    if not S.Running then
+        UP("IDLE")
+    end
 end
 
 -- ==============================================================================
@@ -1574,6 +1794,13 @@ end
 local function AutoStart()
     if not S.Running then return end
     UR() UE(nil,nil) UL(nil)
+
+    if S.Mode == "AFK Mobs" or S.Mode == "AFK Boss" then
+        US("AFK mode starten...")
+        RunAfkFarmMode()
+        return
+    end
+
     US("Wacht karakter...")
     local t=tick() repeat task.wait(0.3) until GetChar() or tick()-t>15
     WaitForWorldLoad(15)
@@ -1612,7 +1839,8 @@ BtnStart.MouseButton1Click:Connect(function()
     if not S.TotalRuns then S.TotalRuns=0 end
     if not S.TotalTimeSec then S.TotalTimeSec=0 end
     if not S.TotalKills then S.TotalKills=0 end
-    SaveState(S, true) UP("LOBBY")
+    local startPhase = (S.Mode == "AFK Mobs" or S.Mode == "AFK Boss") and "AFK" or "LOBBY"
+    SaveState(S, true) UP(startPhase)
     UR() UK() UE(nil,nil) UT(nil) UL(nil)
     UpdateStatusDot(true)
     UpdateSessionBar()
@@ -1656,7 +1884,7 @@ task.spawn(function()
         end
     end
 
-    if inDungeon then
+    if inDungeon and S.Mode == "Dungeon" then
         Log("Boot","Dungeon gedetecteerd bij boot, automatisch hervatten")
         S.Running = true
         SaveState(S)
