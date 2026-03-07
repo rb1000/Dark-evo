@@ -628,7 +628,7 @@ local function UK()
     pcall(function()
         local run = S.RunKills or 0
         local total = S.TotalKills or 0
-        VK.Text = "Run "..run.."\nLife "..total
+        VK.Text = "RunKills "..run.."\nLife "..total
     end)
 end
 
@@ -1262,7 +1262,7 @@ local function ClearDungeon()
                     S.RunKills = (S.RunKills or 0) + 1
                     SaveState(S)
                     UK()
-                    Log("Dungeon","Mob gekild | Run: "..(S.RunKills or 0).." | Life: "..(S.TotalKills or 0))
+                    Log("Dungeon","Mob gekild | DungeonRun: "..dungeonRunNo.." | RunKills: "..(S.RunKills or 0).." | Life: "..(S.TotalKills or 0))
                 else
                     Log("Dungeon","Kill skip (al geteld)")
                 end
@@ -1304,7 +1304,8 @@ end
 -- FASES
 -- ==============================================================================
 local function RunDungeonPhase()
-    UP("DUNGEON") Log("Dungeon","=== Run "..S.CurrentRun.." start ===")
+    local dungeonRunNo = (S.CurrentRun or 0) + 1
+    UP("DUNGEON") Log("Dungeon","=== Run "..dungeonRunNo.." start ===")
 
     WaitForWorldLoad(15)   if not S.Running then return end
     WaitForLoadingGui(30)  if not S.Running then return end
@@ -1319,7 +1320,7 @@ local function RunDungeonPhase()
     Log("Dungeon","Enemies init: "..alive.."/"..total)
     UpdateEnemyProgress(alive)
 
-    US("Run "..S.CurrentRun.." | Aanvallen...")
+    US("Run "..dungeonRunNo.." | Aanvallen...")
     ClearDungeon()
     if not S.Running then StopLiveTimer() return end
 
@@ -1449,7 +1450,7 @@ local function AutoStart()
 
     Log("AutoStart","Phase="..S.Phase.." InDungeon="..tostring(inDungeon))
     if S.Phase=="DUNGEON" or inDungeon then
-        US("Dungeon! Run "..S.CurrentRun) RunDungeonPhase()
+        US("Dungeon! Run "..((S.CurrentRun or 0) + 1)) RunDungeonPhase()
     else
         US("Lobby, starten...") RunLobbyPhase()
     end
