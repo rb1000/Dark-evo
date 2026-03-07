@@ -491,26 +491,26 @@ local BtnParty  = Btn("⚑  PARTY", 198, 236, 102, COLORS.PURPLE)
 
 Div(270)
 
--- MINI LOG (laatste 5 regels)
+-- MINI LOG (laatste 4 regels, groter en leesbaarder)
 local LogPanel = Instance.new("Frame")
-LogPanel.Size=UDim2.new(1,-20,0,44) LogPanel.Position=UDim2.new(0,10,0,274)
-LogPanel.BackgroundColor3=COLORS.STATBG LogPanel.BorderSizePixel=0 LogPanel.Parent=Content
+LogPanel.Size=UDim2.new(1,-20,0,64) LogPanel.Position=UDim2.new(0,10,0,274)
+LogPanel.BackgroundColor3=Color3.fromRGB(18,18,28) LogPanel.BorderSizePixel=0 LogPanel.Parent=Content
 Instance.new("UICorner",LogPanel).CornerRadius=UDim.new(0,5)
 
 local LogLines = {}
-for i=1,5 do
+for i=1,4 do
     local l = Instance.new("TextLabel")
-    l.Size=UDim2.new(1,-10,0,8) l.Position=UDim2.new(0,6,0,(i-1)*8+2)
+    l.Size=UDim2.new(1,-10,0,12) l.Position=UDim2.new(0,6,0,(i-1)*14+4)
     l.BackgroundTransparency=1 l.Text="-"
-    l.TextColor3=COLORS.TEXTDIM l.TextSize=8
-    l.Font=Enum.Font.Gotham l.TextXAlignment=Enum.TextXAlignment.Left
+    l.TextColor3=Color3.fromRGB(210,210,230) l.TextSize=10
+    l.Font=Enum.Font.Code l.TextXAlignment=Enum.TextXAlignment.Left
     l.Parent=LogPanel
     LogLines[i]=l
 end
 
 -- STATS sessie-overzicht balk onderaan
 local SessionBar = Instance.new("Frame")
-SessionBar.Size=UDim2.new(1,-20,0,18) SessionBar.Position=UDim2.new(0,10,0,322)
+SessionBar.Size=UDim2.new(1,-20,0,18) SessionBar.Position=UDim2.new(0,10,0,340)
 SessionBar.BackgroundColor3=COLORS.STATBG SessionBar.BorderSizePixel=0 SessionBar.Parent=Content
 Instance.new("UICorner",SessionBar).CornerRadius=UDim.new(0,5)
 
@@ -531,19 +531,21 @@ Instance.new("UICorner",BtnResetLifetime).CornerRadius=UDim.new(0,4)
 
 -- F8 hint onderaan
 local HintBar = Instance.new("TextLabel")
-HintBar.Size=UDim2.new(1,0,0,12) HintBar.Position=UDim2.new(0,0,0,344)
+HintBar.Size=UDim2.new(1,0,0,12) HintBar.Position=UDim2.new(0,0,0,362)
 HintBar.BackgroundTransparency=1 HintBar.Text="F8 = toon/verberg | Sleep titlebar = verplaatsen"
 HintBar.TextColor3=Color3.fromRGB(255,255,255) HintBar.TextSize=10
 HintBar.Font=Enum.Font.Gotham HintBar.Parent=Content
 
 local _miniLogItems = {}
 PushMiniLog = function(txt, color)
+    local line = tostring(txt or "-"):gsub("[%c\r\n]+"," ")
+    if #line > 56 then line = string.sub(line,1,56).."..." end
     table.insert(_miniLogItems, 1, {
-        t = tostring(txt or "-"):gsub("[%c\r\n]+"," "),
+        t = line,
         c = color or COLORS.TEXTDIM
     })
-    while #_miniLogItems > 5 do table.remove(_miniLogItems, #_miniLogItems) end
-    for i=1,5 do
+    while #_miniLogItems > 4 do table.remove(_miniLogItems, #_miniLogItems) end
+    for i=1,4 do
         local item = _miniLogItems[i]
         if item then
             LogLines[i].Text = item.t
