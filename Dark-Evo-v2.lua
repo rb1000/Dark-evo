@@ -1262,7 +1262,7 @@ local function ClearDungeon()
                     S.RunKills = (S.RunKills or 0) + 1
                     SaveState(S)
                     UK()
-                    Log("Dungeon","Mob gekild | DungeonRun: "..dungeonRunNo.." | RunKills: "..(S.RunKills or 0).." | Life: "..(S.TotalKills or 0))
+                    Log("Dungeon","Mob gekild | DungeonRun: "..((S.CurrentRun or 0) + 1).." | RunKills: "..(S.RunKills or 0).." | Life: "..(S.TotalKills or 0))
                 else
                     Log("Dungeon","Kill skip (al geteld)")
                 end
