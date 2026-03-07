@@ -62,10 +62,12 @@ end
 -- STATE
 -- ==============================================================================
 local SAVE_FILE = "peakevo_state.json"
+local SAVE_THROTTLE_SEC = 1.5
+local _lastSaveTick = 0
+local _saveScheduled = false
+local _savePendingState = nil
 
-local function SaveState(s)
-    _G.PeakEvo = s
-    shared.PeakEvo = s
+local function WriteStateFile(s)
     -- Sla lifetime + config op in bestand zodat ze teleport/restart overleven
     pcall(function()
         local data = {
@@ -77,6 +79,34 @@ local function SaveState(s)
             MaxRuns      = s.MaxRuns      or 0,
         }
         writefile(SAVE_FILE, game:GetService("HttpService"):JSONEncode(data))
+    end)
+end
+
+local function SaveState(s, force)
+    _G.PeakEvo = s
+    shared.PeakEvo = s
+
+    local now = tick()
+    if force or (now - _lastSaveTick) >= SAVE_THROTTLE_SEC then
+        _lastSaveTick = now
+        _savePendingState = nil
+        _saveScheduled = false
+        WriteStateFile(s)
+        return
+    end
+
+    _savePendingState = s
+    if _saveScheduled then return end
+    _saveScheduled = true
+
+    local delaySec = math.max(0.05, SAVE_THROTTLE_SEC - (now - _lastSaveTick))
+    task.delay(delaySec, function()
+        _saveScheduled = false
+        local pending = _savePendingState
+        if not pending then return end
+        _savePendingState = nil
+        _lastSaveTick = tick()
+        WriteStateFile(pending)
     end)
 end
 
@@ -318,7 +348,7 @@ end)
 BtnClose.MouseButton1Click:Connect(function()
     -- Stop alles netjes
     S.Running = false
-    SaveState(S)
+    SaveState(S, true)
     -- Verwijder GUI volledig
     pcall(function()
         local g = LocalPlayer.PlayerGui:FindFirstChild("PeakEvoGui")
@@ -458,11 +488,12 @@ local STAT_Y = 124
 local VS = StatBox("◉","Status",  0, 0, STAT_Y)
 local VP = StatBox("◈","Fase",    1, 0, STAT_Y)
 local VR = StatBox("↺","Runs",    0, 1, STAT_Y)
-local VE = StatBox("⚔","Alive/Run",   1, 1, STAT_Y)
+local VE = StatBox("⚔","Enemy",   1, 1, STAT_Y)
 local VT = StatBox("⏱","Tijd",    0, 2, STAT_Y)
 local VB = StatBox("★","Best",    1, 2, STAT_Y)
 local VK = StatBox("☠","Kills",   0, 3, STAT_Y)
 local VL = StatBox("⌛","Timer",  1, 3, STAT_Y)
+VE.TextSize = 10
 VK.TextSize = 9
 VK.TextYAlignment = Enum.TextYAlignment.Top
 
@@ -491,18 +522,25 @@ local BtnParty  = Btn("⚑  PARTY", 198, 236, 102, COLORS.PURPLE)
 
 Div(270)
 
--- MINI LOG (laatste 4 regels, groter en leesbaarder)
+-- MINI LOG (met compact/full modus)
 local LogPanel = Instance.new("Frame")
 LogPanel.Size=UDim2.new(1,-20,0,64) LogPanel.Position=UDim2.new(0,10,0,274)
 LogPanel.BackgroundColor3=Color3.fromRGB(18,18,28) LogPanel.BorderSizePixel=0 LogPanel.Parent=Content
 Instance.new("UICorner",LogPanel).CornerRadius=UDim.new(0,5)
 
+local BtnLogMode = Instance.new("TextButton")
+BtnLogMode.Size=UDim2.new(0,56,0,12) BtnLogMode.Position=UDim2.new(1,-60,0,2)
+BtnLogMode.BackgroundColor3=Color3.fromRGB(36,36,56) BtnLogMode.BorderSizePixel=0
+BtnLogMode.Text="LOG:CMP" BtnLogMode.TextColor3=COLORS.TEXTDIM BtnLogMode.TextSize=8
+BtnLogMode.Font=Enum.Font.GothamBold BtnLogMode.AutoButtonColor=false BtnLogMode.Parent=LogPanel
+Instance.new("UICorner",BtnLogMode).CornerRadius=UDim.new(0,3)
+
 local LogLines = {}
-for i=1,4 do
+for i=1,6 do
     local l = Instance.new("TextLabel")
-    l.Size=UDim2.new(1,-10,0,12) l.Position=UDim2.new(0,6,0,(i-1)*14+4)
+    l.Size=UDim2.new(1,-10,0,10) l.Position=UDim2.new(0,6,0,(i-1)*10+14)
     l.BackgroundTransparency=1 l.Text="-"
-    l.TextColor3=Color3.fromRGB(210,210,230) l.TextSize=10
+    l.TextColor3=Color3.fromRGB(210,210,230) l.TextSize=9
     l.Font=Enum.Font.Code l.TextXAlignment=Enum.TextXAlignment.Left
     l.Parent=LogPanel
     LogLines[i]=l
@@ -532,30 +570,57 @@ Instance.new("UICorner",BtnResetLifetime).CornerRadius=UDim.new(0,4)
 -- F8 hint onderaan
 local HintBar = Instance.new("TextLabel")
 HintBar.Size=UDim2.new(1,0,0,12) HintBar.Position=UDim2.new(0,0,0,362)
-HintBar.BackgroundTransparency=1 HintBar.Text="F8 = toon/verberg | Sleep titlebar = verplaatsen"
+HintBar.BackgroundTransparency=1 HintBar.Text="F8 = toon/verberg | LOG knop = compact/full"
 HintBar.TextColor3=Color3.fromRGB(255,255,255) HintBar.TextSize=10
 HintBar.Font=Enum.Font.Gotham HintBar.Parent=Content
 
 local _miniLogItems = {}
-PushMiniLog = function(txt, color)
-    local line = tostring(txt or "-"):gsub("[%c\r\n]+"," ")
-    if #line > 56 then line = string.sub(line,1,56).."..." end
-    table.insert(_miniLogItems, 1, {
-        t = line,
-        c = color or COLORS.TEXTDIM
-    })
-    while #_miniLogItems > 4 do table.remove(_miniLogItems, #_miniLogItems) end
-    for i=1,4 do
-        local item = _miniLogItems[i]
-        if item then
-            LogLines[i].Text = item.t
-            LogLines[i].TextColor3 = item.c
-        else
-            LogLines[i].Text = "-"
-            LogLines[i].TextColor3 = COLORS.TEXTDIM
+local _logMode = "compact"
+
+local function RenderMiniLog()
+    local lineCount = (_logMode == "full") and 6 or 4
+    local textSize  = (_logMode == "full") and 8 or 10
+    local lineStep  = (_logMode == "full") and 8 or 12
+    local maxChars  = (_logMode == "full") and 84 or 56
+
+    BtnLogMode.Text = (_logMode == "full") and "LOG:FULL" or "LOG:CMP"
+    BtnLogMode.BackgroundColor3 = (_logMode == "full") and Color3.fromRGB(46,46,70) or Color3.fromRGB(36,36,56)
+
+    for i=1,#LogLines do
+        local lbl = LogLines[i]
+        lbl.Visible = i <= lineCount
+        lbl.TextSize = textSize
+        lbl.Position = UDim2.new(0,6,0,14 + (i-1)*lineStep)
+        if i <= lineCount then
+            local item = _miniLogItems[i]
+            if item then
+                local text = item.t
+                if #text > maxChars then text = string.sub(text,1,maxChars).."..." end
+                lbl.Text = text
+                lbl.TextColor3 = item.c
+            else
+                lbl.Text = "-"
+                lbl.TextColor3 = COLORS.TEXTDIM
+            end
         end
     end
 end
+
+PushMiniLog = function(txt, color)
+    table.insert(_miniLogItems, 1, {
+        t = tostring(txt or "-"):gsub("[%c\r\n]+"," "),
+        c = color or COLORS.TEXTDIM
+    })
+    while #_miniLogItems > 20 do table.remove(_miniLogItems, #_miniLogItems) end
+    RenderMiniLog()
+end
+
+BtnLogMode.MouseButton1Click:Connect(function()
+    _logMode = (_logMode == "compact") and "full" or "compact"
+    RenderMiniLog()
+end)
+
+RenderMiniLog()
 
 -- ==============================================================================
 -- FASE KLEUREN
@@ -620,7 +685,13 @@ local function UR()
 end
 
 local function UE(a,t)
-    pcall(function() VE.Text=a and (a.."/"..t) or "-" end)
+    pcall(function()
+        if a == nil or t == nil then
+            VE.Text = "-"
+            return
+        end
+        VE.Text = string.format("Alive %d | Total %d", tonumber(a) or 0, tonumber(t) or 0)
+    end)
 end
 
 local function UK()
@@ -726,7 +797,7 @@ BtnResetLifetime.MouseButton1Click:Connect(function()
     S.SessionKills = 0
     S.SessionRuns = 0
     S.RunKills = 0
-    SaveState(S)
+    SaveState(S, true)
 
     pcall(function() VB.Text = "-" end)
     UR()
@@ -1035,6 +1106,32 @@ local function FindEnemy()
     return cl
 end
 
+local function FindAnyAliveEnemy()
+    local _,_,root=GetChar() if not root then return nil end
+    local mp=root.Position local cl,md=nil,math.huge
+    pcall(function()
+        local st=Workspace:FindFirstChild("Stage") if not st then return end
+        for _,map in pairs(st:GetChildren()) do
+            if string.sub(map.Name,1,3)=="map" then
+                local f=map:FindFirstChild("monster") or map:FindFirstChild("Enemies")
+                if f then
+                    for _,mob in pairs(f:GetChildren()) do
+                        pcall(function()
+                            local h=mob:FindFirstChild("Humanoid")
+                            local r=mob:FindFirstChild("HumanoidRootPart")
+                            if h and r and h.Health>0 then
+                                local d=(r.Position-mp).Magnitude
+                                if d<md then md=d cl=mob end
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+    end)
+    return cl
+end
+
 local _lastCapture=0
 local function Attack(target)
     pcall(function()
@@ -1123,7 +1220,16 @@ local function Walk(targetPos)
                 stuckT+=1
                 if stuckT>20 then
                     pcall(function() hum.Jump=true end)
-                    Log("Move","Jump") stuckT=0
+                    local emergency = FindAnyAliveEnemy()
+                    if emergency and emergency:FindFirstChild("HumanoidRootPart") then
+                        pcall(function()
+                            root.CFrame = CFrame.new(emergency.HumanoidRootPart.Position + Vector3.new(2,0,0))
+                        end)
+                        Log("Move","Stuck fail-safe TP -> enemy")
+                    else
+                        Log("Move","Jump")
+                    end
+                    stuckT=0
                     lastMoveTo=0
                 end
             else stuckT=0 end
@@ -1144,6 +1250,8 @@ local function ClearDungeon()
     Log("Dungeon","TP-per-enemy clear gestart")
     local timeout = time() + 300
     local totalMobsAtStart = 0  -- alleen voor logging
+    local lastKillCount = S.RunKills or 0
+    local lastKillTick = tick()
 
     -- Tel beginaantal voor de UI
     pcall(function()
@@ -1168,6 +1276,36 @@ local function ClearDungeon()
         if IsEndScreenVisible() then
             Log("Dungeon","Eindscherm zichtbaar")
             return
+        end
+
+        local killCountNow = S.RunKills or 0
+        if killCountNow ~= lastKillCount then
+            lastKillCount = killCountNow
+            lastKillTick = tick()
+        elseif tick() - lastKillTick > 12 then
+            Warn("Dungeon","Kill stagnatie gedetecteerd, recover")
+            local emergency = FindAnyAliveEnemy()
+            if emergency and emergency:FindFirstChild("HumanoidRootPart") then
+                local _,_,root = GetChar()
+                if root then
+                    pcall(function()
+                        root.CFrame = CFrame.new(emergency.HumanoidRootPart.Position + Vector3.new(2,0,0))
+                    end)
+                    local recoverDl = tick() + 2
+                    while tick() < recoverDl do
+                        if not S.Running then return end
+                        if IsEndScreenVisible() then return end
+                        local h = emergency:FindFirstChild("Humanoid")
+                        if not h or h.Health <= 0 then break end
+                        Attack(emergency)
+                        task.wait(0.12)
+                    end
+                    Log("Dungeon","Recover attack burst gedaan")
+                end
+            else
+                Warn("Dungeon","Recover skip: geen enemy gevonden")
+            end
+            lastKillTick = tick()
         end
 
         local aliveMobs = {}
@@ -1260,6 +1398,8 @@ local function ClearDungeon()
                     S.TotalKills = (S.TotalKills or 0) + 1
                     S.SessionKills = (S.SessionKills or 0) + 1
                     S.RunKills = (S.RunKills or 0) + 1
+                    lastKillCount = S.RunKills
+                    lastKillTick = tick()
                     SaveState(S)
                     UK()
                     Log("Dungeon","Mob gekild | DungeonRun: "..((S.CurrentRun or 0) + 1).." | RunKills: "..(S.RunKills or 0).." | Life: "..(S.TotalKills or 0))
@@ -1472,7 +1612,7 @@ BtnStart.MouseButton1Click:Connect(function()
     if not S.TotalRuns then S.TotalRuns=0 end
     if not S.TotalTimeSec then S.TotalTimeSec=0 end
     if not S.TotalKills then S.TotalKills=0 end
-    SaveState(S) UP("LOBBY")
+    SaveState(S, true) UP("LOBBY")
     UR() UK() UE(nil,nil) UT(nil) UL(nil)
     UpdateStatusDot(true)
     UpdateSessionBar()
@@ -1481,7 +1621,7 @@ BtnStart.MouseButton1Click:Connect(function()
 end)
 
 BtnStop.MouseButton1Click:Connect(function()
-    S.Running=false SaveState(S) UP("IDLE") UE(nil,nil) UL(nil)
+    S.Running=false SaveState(S, true) UP("IDLE") UE(nil,nil) UL(nil)
     StopLiveTimer()
     UpdateStatusDot(false)
     pcall(function() local _,hum,root=GetChar() if hum and root then hum:MoveTo(root.Position) end end)
