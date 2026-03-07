@@ -13,8 +13,17 @@ local Workspace           = game.Workspace
 local LocalPlayer         = Players.LocalPlayer
 if not LocalPlayer then warn("[PeakEvo] Geen LocalPlayer!") return end
 
-local function Log(m,t)  print("[PeakEvo]["..m.."] "..tostring(t)) end
-local function Warn(m,t) warn("[PeakEvo]["..m.."] "..tostring(t))  end
+local PushMiniLog = nil
+local function Log(m,t)
+    local msg = "[PeakEvo]["..m.."] "..tostring(t)
+    print(msg)
+    if PushMiniLog then pcall(function() PushMiniLog("["..m.."] "..tostring(t), Color3.fromRGB(170,170,200)) end) end
+end
+local function Warn(m,t)
+    local msg = "[PeakEvo]["..m.."] "..tostring(t)
+    warn(msg)
+    if PushMiniLog then pcall(function() PushMiniLog("["..m.."] "..tostring(t), Color3.fromRGB(255,120,120)) end) end
+end
 
 -- ==============================================================================
 -- AUTO-HERSTART NA TELEPORT
@@ -57,13 +66,15 @@ local SAVE_FILE = "peakevo_state.json"
 local function SaveState(s)
     _G.PeakEvo = s
     shared.PeakEvo = s
-    -- Sla lifetime stats op in bestand zodat ze teleport overleven
+    -- Sla lifetime + config op in bestand zodat ze teleport/restart overleven
     pcall(function()
         local data = {
             TotalKills   = s.TotalKills   or 0,
             TotalRuns    = s.TotalRuns    or 0,
             TotalTimeSec = s.TotalTimeSec or 0,
             BestTime     = s.BestTime     or nil,
+            Difficulty   = s.Difficulty   or "Easy",
+            MaxRuns      = s.MaxRuns      or 0,
         }
         writefile(SAVE_FILE, game:GetService("HttpService"):JSONEncode(data))
     end)
@@ -82,7 +93,7 @@ local function LoadState()
     end
 
     -- Basis state
-    local s = {Running=false, AutoAttack=true, AttackRange=45, Difficulty="Easy",
+    local s = {Running=false, AttackRange=45, Difficulty="Easy",
                MaxRuns=0, CurrentRun=0, Phase="IDLE",
                TotalKills=0, BestTime=nil, RunStart=0,
                TotalRuns=0, TotalTimeSec=0,
@@ -99,6 +110,8 @@ local function LoadState()
                 s.TotalRuns    = data.TotalRuns    or 0
                 s.TotalTimeSec = data.TotalTimeSec or 0
                 s.BestTime     = data.BestTime     or nil
+                s.Difficulty   = data.Difficulty   or s.Difficulty
+                s.MaxRuns      = tonumber(data.MaxRuns) or 0
                 Log("State","Bestand geladen | Runs="..s.TotalRuns.." Kills="..s.TotalKills)
             end
         end
@@ -108,6 +121,7 @@ local function LoadState()
 end
 
 local S = LoadState()
+_G._PeakDashEnabled = true
 SaveState(S)
 
 local function SetPhase(p) S.Phase=p SaveState(S) Log("Phase","-> "..p) end
@@ -139,7 +153,7 @@ pcall(function()
 end)
 
 local GUI_WIDTH  = 310
-local GUI_HEIGHT = 360  -- 30px kleiner door verwijderde deur-rij
+local GUI_HEIGHT = 410  -- compact, met ruimte voor logpaneel + progress
 
 local COLORS = {
     BG        = Color3.fromRGB(13, 13, 18),
@@ -364,36 +378,6 @@ local function DD(lbl,opts,def,y,cb)
     end)
 end
 
-local function TG(lbl,def,y,cb)
-    local c=Instance.new("Frame")
-    c.Size=UDim2.new(1,-20,0,26) c.Position=UDim2.new(0,10,0,y)
-    c.BackgroundColor3=COLORS.BG3 c.BorderSizePixel=0 c.Parent=Content
-    Instance.new("UICorner",c).CornerRadius=UDim.new(0,6)
-    local kl=Instance.new("TextLabel")
-    kl.Size=UDim2.new(1,-50,1,0) kl.Position=UDim2.new(0,10,0,0)
-    kl.BackgroundTransparency=1 kl.Text=lbl kl.TextColor3=COLORS.TEXTDIM
-    kl.TextSize=11 kl.Font=Enum.Font.Gotham kl.TextXAlignment=Enum.TextXAlignment.Left kl.Parent=c
-    local st=def
-    local pill=Instance.new("Frame")
-    pill.Size=UDim2.new(0,38,0,18) pill.Position=UDim2.new(1,-46,0.5,-9)
-    pill.BackgroundColor3=st and COLORS.GREEN or Color3.fromRGB(50,50,70)
-    pill.BorderSizePixel=0 pill.Parent=c
-    Instance.new("UICorner",pill).CornerRadius=UDim.new(1,0)
-    local knob=Instance.new("Frame")
-    knob.Size=UDim2.new(0,14,0,14)
-    knob.Position=st and UDim2.new(1,-16,0.5,-7) or UDim2.new(0,2,0.5,-7)
-    knob.BackgroundColor3=Color3.fromRGB(255,255,255) knob.BorderSizePixel=0 knob.Parent=pill
-    Instance.new("UICorner",knob).CornerRadius=UDim.new(1,0)
-    local btn=Instance.new("TextButton")
-    btn.Size=UDim2.new(1,0,1,0) btn.BackgroundTransparency=1 btn.Text="" btn.Parent=c
-    btn.MouseButton1Click:Connect(function()
-        st=not st
-        TweenService:Create(pill,TweenInfo.new(0.15),{BackgroundColor3=st and COLORS.GREEN or Color3.fromRGB(50,50,70)}):Play()
-        TweenService:Create(knob,TweenInfo.new(0.15),{Position=st and UDim2.new(1,-16,0.5,-7) or UDim2.new(0,2,0.5,-7)}):Play()
-        cb(st)
-    end)
-end
-
 local function Btn(txt,x,y,w,col)
     local b=Instance.new("TextButton")
     b.Size=UDim2.new(0,w,0,28) b.Position=UDim2.new(0,x,0,y)
@@ -438,61 +422,133 @@ end
 -- ==============================================================================
 
 -- CONFIG sectie
-Hdr("⚙  CONFIG", 8)
-DD("Difficulty",{"Easy","Normal","Hard"},S.Difficulty, 22, function(v) S.Difficulty=v end)
-DD("Runs",{"1","2","3","5","10","25","50","Oneindig"},"Oneindig", 52, function(v)
+local function RunsToLabel(maxRuns)
+    maxRuns = tonumber(maxRuns) or 0
+    return maxRuns > 0 and tostring(maxRuns) or "Oneindig"
+end
+
+Hdr("CONFIG", 8)
+DD("Difficulty",{"Easy","Normal","Hard"},S.Difficulty, 22, function(v)
+    S.Difficulty=v
+    SaveState(S)
+end)
+DD("Runs",{"1","2","3","5","10","25","50","Oneindig"},RunsToLabel(S.MaxRuns), 52, function(v)
     S.MaxRuns=v=="Oneindig" and 0 or tonumber(v) S.CurrentRun=0 SaveState(S)
 end)
-TG("Auto Attack", S.AutoAttack, 82, function(v) S.AutoAttack=v end)
-TG("Auto Dash (F)", true, 112, function(v)
-    -- Dash in/uitschakelen
-    _G._PeakDashEnabled = v
-end)
 
-Div(144)
+local ForceLabel = Instance.new("TextLabel")
+ForceLabel.Size=UDim2.new(1,-20,0,12) ForceLabel.Position=UDim2.new(0,10,0,84)
+ForceLabel.BackgroundTransparency=1
+ForceLabel.Text="Auto Attack + Auto Dash: altijd aan"
+ForceLabel.TextColor3=COLORS.TEXTDIM ForceLabel.TextSize=9
+ForceLabel.Font=Enum.Font.Gotham ForceLabel.TextXAlignment=Enum.TextXAlignment.Left
+ForceLabel.Parent=Content
+
+Div(102)
 
 -- LIVE sectie
-Hdr("📊  LIVE", 150)
+Hdr("LIVE", 108)
 
-local STAT_Y = 166
+local STAT_Y = 124
 local VS = StatBox("◉","Status",  0, 0, STAT_Y)
 local VP = StatBox("◈","Fase",    1, 0, STAT_Y)
 local VR = StatBox("↺","Runs",    0, 1, STAT_Y)
-local VE = StatBox("⚔","Enemy",   1, 1, STAT_Y)
+local VE = StatBox("⚔","Alive/Run",   1, 1, STAT_Y)
 local VT = StatBox("⏱","Tijd",    0, 2, STAT_Y)
 local VB = StatBox("★","Best",    1, 2, STAT_Y)
 local VK = StatBox("☠","Kills",   0, 3, STAT_Y)
 local VL = StatBox("⌛","Timer",  1, 3, STAT_Y)
+VK.TextSize = 9
+VK.TextYAlignment = Enum.TextYAlignment.Top
 
-Div(264)
+local EnemyBar = Instance.new("Frame")
+EnemyBar.Size=UDim2.new(1,-20,0,8) EnemyBar.Position=UDim2.new(0,10,0,220)
+EnemyBar.BackgroundColor3=Color3.fromRGB(34,34,52) EnemyBar.BorderSizePixel=0 EnemyBar.Parent=Content
+Instance.new("UICorner",EnemyBar).CornerRadius=UDim.new(1,0)
+
+local EnemyBarFill = Instance.new("Frame")
+EnemyBarFill.Size=UDim2.new(0,0,1,0) EnemyBarFill.Position=UDim2.new(0,0,0,0)
+EnemyBarFill.BackgroundColor3=COLORS.GREEN EnemyBarFill.BorderSizePixel=0 EnemyBarFill.Parent=EnemyBar
+Instance.new("UICorner",EnemyBarFill).CornerRadius=UDim.new(1,0)
+
+local EnemyPct = Instance.new("TextLabel")
+EnemyPct.Size=UDim2.new(0,50,0,10) EnemyPct.Position=UDim2.new(1,-50,0,209)
+EnemyPct.BackgroundTransparency=1 EnemyPct.Text="0%" EnemyPct.TextColor3=COLORS.TEXTDIM
+EnemyPct.TextSize=9 EnemyPct.Font=Enum.Font.GothamBold EnemyPct.TextXAlignment=Enum.TextXAlignment.Right
+EnemyPct.Parent=Content
+
+Div(230)
 
 -- KNOPPEN rij
-local BtnStart  = Btn("▶  START",  10,  268, 92, COLORS.GREEN)
-local BtnStop   = Btn("■  STOP",   106, 268, 88, COLORS.RED)
-local BtnParty  = Btn("⚑  PARTY", 198, 268, 102, COLORS.PURPLE)
+local BtnStart  = Btn("▶  START",  10,  236, 92, COLORS.GREEN)
+local BtnStop   = Btn("■  STOP",   106, 236, 88, COLORS.RED)
+local BtnParty  = Btn("⚑  PARTY", 198, 236, 102, COLORS.PURPLE)
 
-Div(302)
+Div(270)
+
+-- MINI LOG (laatste 5 regels)
+local LogPanel = Instance.new("Frame")
+LogPanel.Size=UDim2.new(1,-20,0,44) LogPanel.Position=UDim2.new(0,10,0,274)
+LogPanel.BackgroundColor3=COLORS.STATBG LogPanel.BorderSizePixel=0 LogPanel.Parent=Content
+Instance.new("UICorner",LogPanel).CornerRadius=UDim.new(0,5)
+
+local LogLines = {}
+for i=1,5 do
+    local l = Instance.new("TextLabel")
+    l.Size=UDim2.new(1,-10,0,8) l.Position=UDim2.new(0,6,0,(i-1)*8+2)
+    l.BackgroundTransparency=1 l.Text="-"
+    l.TextColor3=COLORS.TEXTDIM l.TextSize=8
+    l.Font=Enum.Font.Gotham l.TextXAlignment=Enum.TextXAlignment.Left
+    l.Parent=LogPanel
+    LogLines[i]=l
+end
 
 -- STATS sessie-overzicht balk onderaan
 local SessionBar = Instance.new("Frame")
-SessionBar.Size=UDim2.new(1,-20,0,18) SessionBar.Position=UDim2.new(0,10,0,308)
+SessionBar.Size=UDim2.new(1,-20,0,18) SessionBar.Position=UDim2.new(0,10,0,322)
 SessionBar.BackgroundColor3=COLORS.STATBG SessionBar.BorderSizePixel=0 SessionBar.Parent=Content
 Instance.new("UICorner",SessionBar).CornerRadius=UDim.new(0,5)
 
 local SessionLabel = Instance.new("TextLabel")
-SessionLabel.Size=UDim2.new(1,-10,1,0) SessionLabel.Position=UDim2.new(0,8,0,0)
+SessionLabel.Size=UDim2.new(1,-74,1,0) SessionLabel.Position=UDim2.new(0,8,0,0)
 SessionLabel.BackgroundTransparency=1
-SessionLabel.Text="Lifetime: 0 runs  ·  0 kills  ·  0m 0s"
+SessionLabel.Text="Lifetime: 0 runs | 0 kills | 0m 0s"
 SessionLabel.TextColor3=Color3.fromRGB(180,180,220) SessionLabel.TextSize=10
 SessionLabel.Font=Enum.Font.GothamBold SessionLabel.TextXAlignment=Enum.TextXAlignment.Left
 SessionLabel.Parent=SessionBar
 
+local BtnResetLifetime = Instance.new("TextButton")
+BtnResetLifetime.Size=UDim2.new(0,58,1,-2) BtnResetLifetime.Position=UDim2.new(1,-60,0,1)
+BtnResetLifetime.BackgroundColor3=Color3.fromRGB(80,50,52) BtnResetLifetime.BorderSizePixel=0
+BtnResetLifetime.Text="RESET" BtnResetLifetime.TextColor3=Color3.fromRGB(255,220,220) BtnResetLifetime.TextSize=9
+BtnResetLifetime.Font=Enum.Font.GothamBold BtnResetLifetime.AutoButtonColor=false BtnResetLifetime.Parent=SessionBar
+Instance.new("UICorner",BtnResetLifetime).CornerRadius=UDim.new(0,4)
+
 -- F8 hint onderaan
 local HintBar = Instance.new("TextLabel")
-HintBar.Size=UDim2.new(1,0,0,12) HintBar.Position=UDim2.new(0,0,0,330)
-HintBar.BackgroundTransparency=1 HintBar.Text="F8 = toon/verberg  ·  Sleep titlebar = verplaatsen"
+HintBar.Size=UDim2.new(1,0,0,12) HintBar.Position=UDim2.new(0,0,0,344)
+HintBar.BackgroundTransparency=1 HintBar.Text="F8 = toon/verberg | Sleep titlebar = verplaatsen"
 HintBar.TextColor3=Color3.fromRGB(255,255,255) HintBar.TextSize=10
 HintBar.Font=Enum.Font.Gotham HintBar.Parent=Content
+
+local _miniLogItems = {}
+PushMiniLog = function(txt, color)
+    table.insert(_miniLogItems, 1, {
+        t = tostring(txt or "-"):gsub("[%c\r\n]+"," "),
+        c = color or COLORS.TEXTDIM
+    })
+    while #_miniLogItems > 5 do table.remove(_miniLogItems, #_miniLogItems) end
+    for i=1,5 do
+        local item = _miniLogItems[i]
+        if item then
+            LogLines[i].Text = item.t
+            LogLines[i].TextColor3 = item.c
+        else
+            LogLines[i].Text = "-"
+            LogLines[i].TextColor3 = COLORS.TEXTDIM
+        end
+    end
+end
 
 -- ==============================================================================
 -- FASE KLEUREN
@@ -507,8 +563,32 @@ local FaseKleur={
 -- ==============================================================================
 -- UI UPDATE FUNCTIES
 -- ==============================================================================
+local function StatusColorFromText(msg)
+    local s = string.lower(tostring(msg or ""))
+    if string.find(s, "timeout", 1, true)
+        or string.find(s, "mislukt", 1, true)
+        or string.find(s, "niet gevonden", 1, true)
+        or string.find(s, "error", 1, true)
+    then
+        return COLORS.RED
+    end
+    if string.find(s, "wacht", 1, true) or string.find(s, "loading", 1, true) then
+        return COLORS.ORANGE
+    end
+    if string.find(s, "klaar", 1, true)
+        or string.find(s, "hervatten", 1, true)
+        or string.find(s, "starten", 1, true)
+    then
+        return COLORS.GREEN
+    end
+    return COLORS.TEXT
+end
+
 local function US(t)
-    pcall(function() VS.Text=tostring(t) end)
+    pcall(function()
+        VS.Text=tostring(t)
+        VS.TextColor3 = StatusColorFromText(t)
+    end)
     Log("Status",t)
 end
 
@@ -537,11 +617,11 @@ local function UE(a,t)
 end
 
 local function UK()
-    -- Kills box: huidige run kills (en lifetime tussen haakjes)
+    -- Kills box: run + lifetime op aparte regel
     pcall(function()
         local run = S.RunKills or 0
         local total = S.TotalKills or 0
-        VK.Text = run .. " (" .. total .. ")"
+        VK.Text = "Run "..run.."\nLife "..total
     end)
 end
 
@@ -560,6 +640,7 @@ end
 
 -- Forward declaration, zodat UpdateSessionBar en timer dezelfde lokale variabele gebruiken.
 local _localRunStart = 0
+local _countedMobs = {}
 
 local function GetRunKills()
     return S.RunKills or 0
@@ -569,6 +650,12 @@ local function UpdateEnemyProgress(alive)
     local a = alive or 0
     local totalThisRun = a + GetRunKills()
     UE(a, totalThisRun)
+    pcall(function()
+        local killed = math.max(0, totalThisRun - a)
+        local pct = totalThisRun > 0 and math.clamp(killed / totalThisRun, 0, 1) or 0
+        EnemyBarFill.Size = UDim2.new(pct,0,1,0)
+        EnemyPct.Text = string.format("%d%%", math.floor(pct * 100 + 0.5))
+    end)
 end
 
 local function UpdateSessionBar()
@@ -586,7 +673,7 @@ local function UpdateSessionBar()
             and string.format("%dh %dm %ds", h, m, sc)
             or  string.format("%dm %ds", m, sc)
         SessionLabel.Text = string.format(
-            "Lifetime: %d runs  ·  %d kills  ·  %s",
+            "Lifetime: %d runs | %d kills | %s",
             S.TotalRuns or 0, S.TotalKills or 0, timeStr
         )
     end)
@@ -594,13 +681,52 @@ end
 
 -- Live heartbeat voor de session bar (update elke ~1s)
 local _lastBarUpdate = 0
+local _resetLifetimeArmed = false
+local _resetLifetimeExpire = 0
 
 RunService.Heartbeat:Connect(function()
     if tick() - _lastBarUpdate < 1 then return end
     _lastBarUpdate = tick()
+    if _resetLifetimeArmed and tick() > _resetLifetimeExpire then
+        _resetLifetimeArmed = false
+        BtnResetLifetime.Text = "RESET"
+        BtnResetLifetime.BackgroundColor3 = Color3.fromRGB(80,50,52)
+    end
     UpdateSessionBar()
     UK()
     UR()
+end)
+
+BtnResetLifetime.MouseButton1Click:Connect(function()
+    local now = tick()
+    if (not _resetLifetimeArmed) or now > _resetLifetimeExpire then
+        _resetLifetimeArmed = true
+        _resetLifetimeExpire = now + 5
+        BtnResetLifetime.Text = "CONFIRM"
+        BtnResetLifetime.BackgroundColor3 = COLORS.ORANGE
+        US("Klik RESET nogmaals binnen 5s")
+        return
+    end
+
+    _resetLifetimeArmed = false
+    BtnResetLifetime.Text = "RESET"
+    BtnResetLifetime.BackgroundColor3 = Color3.fromRGB(80,50,52)
+
+    S.TotalKills = 0
+    S.TotalRuns = 0
+    S.TotalTimeSec = 0
+    S.BestTime = nil
+    S.SessionKills = 0
+    S.SessionRuns = 0
+    S.RunKills = 0
+    SaveState(S)
+
+    pcall(function() VB.Text = "-" end)
+    UR()
+    UK()
+    UpdateEnemyProgress(0)
+    UpdateSessionBar()
+    US("Lifetime stats gereset")
 end)
 
 -- ==============================================================================
@@ -882,7 +1008,7 @@ local function FindEnemy()
     pcall(function()
         local st=Workspace:FindFirstChild("Stage") if not st then return end
         for _,map in pairs(st:GetChildren()) do
-            if map.Name~="baseStage" then
+            if string.sub(map.Name,1,3)=="map" then
                 local f=map:FindFirstChild("monster") or map:FindFirstChild("Enemies")
                 if f then
                     for _,mob in pairs(f:GetChildren()) do
@@ -957,7 +1083,7 @@ local function Walk(targetPos)
 
         RefreshMoveTo()
 
-        if _G._PeakDashEnabled ~= false then TryDash() end
+        TryDash()
 
         if tick()-lastEL>2 then
             local alive,total=CountEnemies()
@@ -965,25 +1091,23 @@ local function Walk(targetPos)
             lastEL=tick()
         end
 
-        if S.AutoAttack then
-            local enemy=FindEnemy()
-            if enemy then
-                pcall(function() hum:MoveTo(root.Position) end)
-                local ct=tick()+15
-                repeat
-                    if not S.Running then return end
-                    if IsEndScreenVisible() then return end
-                    char,hum,root=GetChar() if not char then return end
-                    Attack(enemy)
-                    pcall(function()
-                        if enemy.HumanoidRootPart then hum:MoveTo(enemy.HumanoidRootPart.Position) end
-                    end)
-                    task.wait(0.15)
-                until tick()>ct or not enemy or not enemy.Parent
-                    or not enemy:FindFirstChild("Humanoid") or enemy.Humanoid.Health<=0
-                lastMoveTo = 0
-                RefreshMoveTo()
-            end
+        local enemy=FindEnemy()
+        if enemy then
+            pcall(function() hum:MoveTo(root.Position) end)
+            local ct=tick()+15
+            repeat
+                if not S.Running then return end
+                if IsEndScreenVisible() then return end
+                char,hum,root=GetChar() if not char then return end
+                Attack(enemy)
+                pcall(function()
+                    if enemy.HumanoidRootPart then hum:MoveTo(enemy.HumanoidRootPart.Position) end
+                end)
+                task.wait(0.15)
+            until tick()>ct or not enemy or not enemy.Parent
+                or not enemy:FindFirstChild("Humanoid") or enemy.Humanoid.Health<=0
+            lastMoveTo = 0
+            RefreshMoveTo()
         end
 
         char,hum,root=GetChar()
@@ -1124,12 +1248,17 @@ local function ClearDungeon()
 
             -- Kill tellen
             if mobDead then
-                S.TotalKills = (S.TotalKills or 0) + 1
-                S.SessionKills = (S.SessionKills or 0) + 1
-                S.RunKills = (S.RunKills or 0) + 1
-                SaveState(S)
-                UK()
-                Log("Dungeon","Mob gekild | Run: "..(S.RunKills or 0).." | Sessie: "..S.SessionKills.." | Totaal: "..S.TotalKills)
+                if not _countedMobs[mob] then
+                    _countedMobs[mob] = true
+                    S.TotalKills = (S.TotalKills or 0) + 1
+                    S.SessionKills = (S.SessionKills or 0) + 1
+                    S.RunKills = (S.RunKills or 0) + 1
+                    SaveState(S)
+                    UK()
+                    Log("Dungeon","Mob gekild | Run: "..(S.RunKills or 0).." | Sessie: "..S.SessionKills.." | Totaal: "..S.TotalKills)
+                else
+                    Log("Dungeon","Kill skip (al geteld)")
+                end
             else
                 Log("Dungeon","Mob combat timeout, volgende")
             end
@@ -1174,6 +1303,7 @@ local function RunDungeonPhase()
     WaitForLoadingGui(30)  if not S.Running then return end
     WaitForDoor()          if not S.Running then return end
 
+    _countedMobs = {}
     S.RunKills = 0
     UK()
     StartLiveTimer()
@@ -1329,6 +1459,7 @@ BtnStart.MouseButton1Click:Connect(function()
     S.SessionKills=0
     S.SessionRuns=0
     S.RunKills=0
+    _countedMobs={}
     -- Lifetime totals NIET resetten: TotalRuns, TotalTimeSec, TotalKills, BestTime
     if not S.TotalRuns then S.TotalRuns=0 end
     if not S.TotalTimeSec then S.TotalTimeSec=0 end
@@ -1356,7 +1487,7 @@ end)
 -- ==============================================================================
 -- BOOT
 -- ==============================================================================
-_G._PeakDashEnabled = true  -- standaard aan
+_G._PeakDashEnabled = true
 
 US("Idle") UR() UP(S.Phase) UK() UL(nil) UpdateSessionBar()
 if S.BestTime then UB(S.BestTime) end
