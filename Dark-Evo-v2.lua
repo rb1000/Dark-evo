@@ -154,6 +154,7 @@ end)
 
 local GUI_WIDTH  = 310
 local GUI_HEIGHT = 410  -- compact, met ruimte voor logpaneel + progress
+local GUI_SCALE  = 1.20 -- algemene schaal voor betere leesbaarheid
 
 local COLORS = {
     BG        = Color3.fromRGB(13, 13, 18),
@@ -182,6 +183,10 @@ Main.Position=UDim2.new(0,16,0.5,-GUI_HEIGHT/2)
 Main.BackgroundColor3=COLORS.BG
 Main.BorderSizePixel=0 Main.Active=true Main.Draggable=true Main.Parent=Screen
 Instance.new("UICorner",Main).CornerRadius=UDim.new(0,10)
+
+local MainUIScale = Instance.new("UIScale")
+MainUIScale.Scale = GUI_SCALE
+MainUIScale.Parent = Main
 
 -- Shadow als child van Main zodat hij automatisch mee beweegt bij drag
 local Shadow = Instance.new("Frame")
